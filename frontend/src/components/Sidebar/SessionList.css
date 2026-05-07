@@ -1,0 +1,74 @@
+.session-list {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.session-list__header {
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #f1f3f7;
+}
+
+.session-list__body {
+  flex: 1;
+  overflow: auto;
+  padding: 8px 8px 16px;
+  min-height: 0;
+}
+
+.session-list__group {
+  margin-bottom: 12px;
+}
+
+.session-list__group-title {
+  padding: 4px 8px;
+  font-size: 12px;
+  color: #6b7280;
+  letter-spacing: 0.04em;
+}
+
+.session-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+  user-select: none;
+}
+
+.session-item:hover {
+  background: #f5f7fb;
+}
+
+.session-item--active {
+  background: #e6f0ff;
+}
+
+.session-item__icon {
+  color: #1677ff;
+}
+
+.session-item__title {
+  flex: 1;
+  font-size: 13px;
+  color: #1f2937;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+
+.session-item__actions {
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.session-item:hover .session-item__actions,
+.session-item--active .session-item__actions {
+  opacity: 1;
+}

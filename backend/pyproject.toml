@@ -87,7 +87,9 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "RUF"]
-ignore = ["E501"]
+# RUF001/002/003：中文文档/注释里的全角冒号、逗号、破折号在 ruff 看来"歧义"，
+# 但本项目主体语言就是中文，强制半角反而失去阅读语感，整体忽略。
+ignore = ["E501", "RUF001", "RUF002", "RUF003"]
 
 [tool.mypy]
 python_version = "3.11"

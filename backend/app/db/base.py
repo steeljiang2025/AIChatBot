@@ -12,7 +12,12 @@ import logging
 from collections.abc import AsyncIterator
 from typing import Final
 
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 from sqlalchemy.sql import text
 
 from app.core.config import get_settings
@@ -48,7 +53,7 @@ async def ping_engine(engine: AsyncEngine) -> bool:
         async with engine.connect() as conn:
             await conn.execute(text("SELECT 1"))
         return True
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         _logger.warning("ping_engine failed url=%s err=%s", engine.url, exc)
         return False
 

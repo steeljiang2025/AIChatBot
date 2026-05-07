@@ -39,6 +39,8 @@ RUN python -m pip install --upgrade pip \
 # 默认把整套源码 COPY 进镜像；compose 中再用 volume 覆盖以获得热更新
 COPY app /app/app
 COPY tests /app/tests
+COPY alembic /app/alembic
+COPY alembic.ini /app/alembic.ini
 
 EXPOSE 8000
 

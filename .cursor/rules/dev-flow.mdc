@@ -67,13 +67,74 @@ Closes {TEAM}-{n}
 
 ---
 
+## 阶段化分支策略（HARD RULE，自 Phase 3 起强制）
+
+> 适用范围：从 **Phase 3 起**所有对 `main` 的写操作 **必须**经由独立分支 + Pull Request 完成。Phase 1 / Phase 2 已用 trunk-based 直推 main 完成，仅作历史参考；之后不再使用。
+
+### 触发条件（满足任一即进入分支模式）
+
+- 当前改动归属于 Phase 3 / Phase 4 的 Issue（STE-16 起的所有 Issue）
+- 用户明确说"走 PR" / "起分支" / "拉个分支"
+- 改动涉及 `backend/` 业务代码、Alembic 迁移、SQL 安全层、LangGraph 工作流、鉴权、SSE 接口
+- 单次改动跨 ≥ 2 个 Issue 或可能影响他人正在进行的工作
+
+### 强制流程
+
+1. **开始做 X**：先回显"本任务将在分支 `feat/STE-{n}-{kebab}` 上完成，commit 不会直接落到 main"，待用户确认后再开工。
+2. 落代码前先：
+   ```bash
+   git switch main && git pull --rebase
+   git switch -c feat/STE-{n}-{kebab}
+   ```
+3. commit 全部落到该分支；**严禁** 在该模式下执行 `git commit` 到 main 或 `git push origin main`。
+4. 代码完成时：
+   ```bash
+   git push -u origin feat/STE-{n}-{kebab}
+   gh pr create --title "<commit subject>" --body "...Closes STE-{n}"
+   ```
+   推完 PR 后 **立即** 把 Linear Issue 切到 **In Review**。
+5. PR 通过（自评 / 合作者 LGTM / CI 绿）后：
+   ```bash
+   gh pr merge --squash --delete-branch
+   git switch main && git pull --rebase
+   ```
+   merge 成功后再把 Linear Issue 切到 **Done**。
+
+### 禁止动作
+
+- ❌ 分支模式下 agent 不得对 `main` 执行 `git commit` / `git push origin main`
+- ❌ 不得跳过 **In Review** 直接把 Issue 从 In Progress 切到 Done
+- ❌ 不得 `git push --force` 到 main；其他分支 force-push 也需用户明确许可
+- ❌ 不得提交空白 body 的 PR；至少包含 `## Summary` 与 `Closes {TEAM}-{n}`
+
+### Linear 状态联动
+
+| Git/PR 动作 | Linear 状态 |
+|---|---|
+| 起分支 + 第一条 commit | **In Progress** |
+| `gh pr create` 成功 | **In Review** |
+| `gh pr merge` 成功 | **Done** |
+
+若仓库已启用 Linear ↔ GitHub 集成，可由 Linear 自动联动；agent 仍要在每次状态变更前回显意图。
+
+### 例外（允许直接对 main 操作）
+
+- 纯文档/规则类一次性修复（README / `.cursor/**` / 注释错别字），且 diff ≤ 5 行
+- 用户明确说「这次直接推 main」
+- hotfix 紧急补丁，并由用户口头授权
+
+其余情况一律强制走分支。
+
+---
+
 ## 默认安全策略
 
 1. **会写入 Linear** 的动作（`save_issue` 切状态 / 创建、`save_comment`、`save_project`、`delete_*`）执行前先回显"我打算做 …"让用户确认；轻量动作（加一条评论、单纯改状态）可直接执行后再报告结果。
 2. 标题模糊匹配出多条 Issue 时**必须**列出候选让用户选，禁止凭空新建。
-3. 涉及 git 分支 / commit / PR：**只输出建议命令**，不直接调用 shell 执行 `git push` 等动作；除非用户明确说"执行"或"帮我跑"。
+3. 涉及 git 分支 / commit / PR：**只输出建议命令**，不直接调用 shell 执行 `git push` 等动作；除非用户明确说"执行"或"帮我跑"。Phase 3 起的强制分支模式见上一节。
 4. `project.repo` 仍是 `<owner>/<repo>` 占位符时，拒绝生成 PR/远端命令，并提示先在本规则顶部填写。
 5. 状态/标签/里程碑等枚举值不要硬编码，先用对应的 `list_issue_statuses` / `list_issue_labels` / `list_milestones` 拉取实际值。
+6. 当前改动若命中"阶段化分支策略"的触发条件，agent 必须显式提醒"现在进入分支模式"，并以分支模式的强制流程执行；用户没明确豁免前不得回退到 trunk-based 直推。
 
 ---
 
@@ -85,3 +146,7 @@ Closes {TEAM}-{n}
   我：找到 STE-12 → 待确认后切 Done → 若 `project.repo` 已配置则给出 `gh pr merge` 建议命令。
 - 用户：「看下我的活」
   我：列出 team=STE 下 `assignee=me` 的 Issue，按 In Progress / Todo / Backlog 分组。
+- 用户：「开始做 STE-16 后端依赖」（Phase 3 任务）
+  我：识别命中"阶段化分支策略"触发条件 → 回显"本任务进入分支模式，分支名 `feat/STE-16-backend-deps`，commit 不会落到 main，完成后用 PR + squash merge"；待用户确认后再切 Linear In Progress 与拉分支。
+- 用户：「STE-16 写完了」
+  我：先 `git push -u origin feat/STE-16-backend-deps` + `gh pr create` → Linear 切 **In Review** → 等用户/CI 通过后 `gh pr merge --squash --delete-branch` → Linear 切 **Done**。

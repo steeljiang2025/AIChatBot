@@ -1,0 +1,18 @@
+node_modules/
+dist/
+build/
+coverage/
+.git/
+.gitignore
+.env
+.env.*
+.vite/
+.cache/
+.DS_Store
+*.log
+*.tsbuildinfo
+# 显式排除 tsc 可能产出的根目录编译产物，避免覆盖 .ts 配置
+vite.config.js
+vite.config.d.ts
+vitest.setup.js
+vitest.setup.d.ts

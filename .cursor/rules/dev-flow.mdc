@@ -1,0 +1,87 @@
+---
+description: 用日常中文口语驱动开发流程——把"开始做 X / X 做完了 / 给我个 PR"等短语自动映射到 Linear 任务流转、分支命名、commit/PR 规范。
+alwaysApply: true
+---
+
+# 开发流程口语化操作指南
+
+> 这是项目级规则，作用：当用户用日常中文短语描述开发动作时，按下表把它翻译成具体的 Linear / Git / PR 操作。
+> 永远先按"项目配置"中的 `team` 与 `repo` 限定操作范围。
+
+## 项目配置（请直接在这里修改）
+
+```yaml
+project:
+  name: "智能数据分析助理"
+  team: "STE"                          # Linear team 的 key / id / name 任一即可
+  repo: "steeljiang2025/AIChatBot"     # GitHub 仓库 owner/name
+  repo_url: "https://github.com/steeljiang2025/AIChatBot.git"
+```
+
+后续所有 Linear 操作都默认 `team = project.team`；所有 git/PR 操作都基于 `project.repo`。
+
+---
+
+## 口语 → 动作映射（自上而下匹配，命中即执行；未命中则反问意图）
+
+| 用户口语（含同义短语） | 我要做的动作 |
+|---|---|
+| "开始做 X" / "开搞 X" / "启动 X 这个功能" | 1) 用 `list_issues`（team + 标题模糊匹配 + assignee 不限）找 X；找不到则用 `save_issue` 新建（`team=project.team`、`assignee="me"`、priority 默认 Medium）。2) 用 `list_issue_statuses` 取该 team 的状态，调用 `save_issue` 把状态切到 **In Progress**。3) 输出推荐分支名 `feat/{TEAM}-{n}-{kebab}` 与首条 commit 前缀 `feat({TEAM}-{n}): …`。 |
+| "看下我的活" / "本周做啥" / "我手头有什么" | `list_issues` with `assignee="me"`, `team=project.team`，按状态分组展示，标注优先级。 |
+| "把 X 切到 review" / "X 提交 review" | 找到 X 的 Issue → `save_issue` 状态切 **In Review**。 |
+| "X 做完了" / "X 搞定" / "关掉 X" | 找到 X → 切 **Done**；若已有 PR 草稿则提示去 GitHub merge。 |
+| "暂停 X" / "X 先放一放" | 切 **Backlog**（默认）或询问用户具体目标状态。 |
+| "给我个 commit message" / "我要提交" | 基于当前 In Progress 的 Issue，生成 Conventional Commits：`<type>({TEAM}-{n}): <subject>`，body 写动机/影响面。 |
+| "起个 PR" / "帮我写 PR" | 输出 PR 标题 = 首条 commit；正文使用下方 PR 模板，并自动追加 `Closes {TEAM}-{n}`。`project.repo` 为占位符时拒绝并提醒用户先填。 |
+| "为 X 加条评论：…" | `save_comment` 写到对应 Issue。 |
+| "查 X 的进度" | `get_issue` 取详情 + `list_comments` 取最近 3 条评论汇总。 |
+| "建个里程碑 …" / "拆成几个里程碑" | `save_milestone`，必要时配套 `save_issue` 拆任务挂到里程碑下。 |
+
+未列入的口语先用一句话复述确认意图，再决定调用哪条动作。
+
+---
+
+## 分支命名约定
+
+- 功能：`feat/{TEAM}-{n}-{kebab}`
+- 缺陷：`fix/{TEAM}-{n}-{kebab}`
+- 重构：`refactor/{TEAM}-{n}-{kebab}`
+- 文档/测试/杂项：`docs/` `test/` `chore/` 同上结构
+- `{n}` 取 Linear Issue 编号；`{kebab}` 取标题前 ≤5 个词转小写连字符
+
+## Commit / PR 模板
+
+单条 commit：`<type>({TEAM}-{n}): <subject>`
+
+PR 正文：
+
+```md
+## Summary
+- …
+
+## Test plan
+- [ ] …
+
+Closes {TEAM}-{n}
+```
+
+---
+
+## 默认安全策略
+
+1. **会写入 Linear** 的动作（`save_issue` 切状态 / 创建、`save_comment`、`save_project`、`delete_*`）执行前先回显"我打算做 …"让用户确认；轻量动作（加一条评论、单纯改状态）可直接执行后再报告结果。
+2. 标题模糊匹配出多条 Issue 时**必须**列出候选让用户选，禁止凭空新建。
+3. 涉及 git 分支 / commit / PR：**只输出建议命令**，不直接调用 shell 执行 `git push` 等动作；除非用户明确说"执行"或"帮我跑"。
+4. `project.repo` 仍是 `<owner>/<repo>` 占位符时，拒绝生成 PR/远端命令，并提示先在本规则顶部填写。
+5. 状态/标签/里程碑等枚举值不要硬编码，先用对应的 `list_issue_statuses` / `list_issue_labels` / `list_milestones` 拉取实际值。
+
+---
+
+## 示例
+
+- 用户：「开始做登录系统功能」
+  我：在 Linear team `STE` 中查 "登录系统" → 没有则建 Issue（assignee=me）→ 待确认后切 In Progress → 输出 `feat/STE-12-login-system` 与 `feat(STE-12): scaffold login module`。
+- 用户：「登录做完了」
+  我：找到 STE-12 → 待确认后切 Done → 若 `project.repo` 已配置则给出 `gh pr merge` 建议命令。
+- 用户：「看下我的活」
+  我：列出 team=STE 下 `assignee=me` 的 Issue，按 In Progress / Todo / Backlog 分组。

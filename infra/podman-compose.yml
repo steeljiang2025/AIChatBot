@@ -83,8 +83,8 @@ services:
       - ../frontend/index.html:/app/index.html:Z
       - ../frontend/vite.config.ts:/app/vite.config.ts:Z
       - ../frontend/tsconfig.json:/app/tsconfig.json:Z
-      - ../frontend/tsconfig.node.json:/app/tsconfig.node.json:Z
       - ../frontend/vitest.setup.ts:/app/vitest.setup.ts:Z
+      - ../frontend/package.json:/app/package.json:Z
       - aichatbot-frontend-node-modules:/app/node_modules
     depends_on:
       - backend

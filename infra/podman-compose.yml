@@ -55,6 +55,8 @@ services:
     volumes:
       - ../backend/app:/app/app:Z
       - ../backend/tests:/app/tests:Z
+      - ../backend/alembic:/app/alembic:Z
+      - ../backend/alembic.ini:/app/alembic.ini:Z
     depends_on:
       postgres:
         condition: service_healthy

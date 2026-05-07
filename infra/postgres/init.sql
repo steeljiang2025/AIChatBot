@@ -4,9 +4,10 @@
 -- 业务账号(app_user / biz_ro)由配套 init-roles.sh 创建（密码取自环境变量）
 -- =====================================================================
 
--- 1) 启用必需扩展
+-- 1) 启用必需扩展（superuser 执行；app_user 后续无需 CREATE EXTENSION 权限）
 CREATE EXTENSION IF NOT EXISTS vector;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE EXTENSION IF NOT EXISTS pgcrypto;   -- gen_random_uuid()，UUID 主键 server_default 用
 
 -- 2) 划分逻辑 schema
 CREATE SCHEMA IF NOT EXISTS meta;        -- 用户/租户/会话/消息

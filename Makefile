@@ -16,6 +16,7 @@ endif
 # 全部命令都走容器，禁止依赖宿主机 venv / pnpm
 .PHONY: help up up-build down restart logs ps psql \
         be-shell be-test be-fmt be-lint \
+        be-migrate be-migrate-down be-migrate-current be-migrate-history \
         fe-shell fe-test fe-build fe-lint fe-fmt \
         rebuild fmt lint smoke
 
@@ -60,6 +61,18 @@ be-fmt: ## 容器内格式化后端代码
 
 be-lint: ## 容器内静态检查
 	podman exec aichatbot-backend ruff check .
+
+be-migrate: ## 容器内执行 alembic upgrade head
+	podman exec aichatbot-backend alembic upgrade head
+
+be-migrate-down: ## 容器内回滚一个迁移
+	podman exec aichatbot-backend alembic downgrade -1
+
+be-migrate-current: ## 容器内查看当前迁移版本
+	podman exec aichatbot-backend alembic current
+
+be-migrate-history: ## 容器内查看迁移历史
+	podman exec aichatbot-backend alembic history --verbose
 
 # ---------- Frontend（容器内执行） ----------
 fe-shell: ## 进入 frontend 容器 sh

@@ -20,14 +20,13 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import AsyncIterator
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.core import security
-
 
 # ---- 测试身份 ----
 
@@ -80,7 +79,7 @@ class _FakeSession:
         self.tenant_id = tenant_id
         self.user_id = user_id
         self.title = title
-        now = datetime.now(tz=timezone.utc)
+        now = datetime.now(tz=UTC)
         self.created_at = now
         self.updated_at = now
 
@@ -131,7 +130,7 @@ class _SessionStore:
             user_id=user_id,
             role=role,
             content=content,
-            created_at=datetime.now(tz=timezone.utc) + timedelta(milliseconds=offset_ms),
+            created_at=datetime.now(tz=UTC) + timedelta(milliseconds=offset_ms),
         )
         self.messages.setdefault(session_id, []).append(msg)
         return msg
@@ -189,7 +188,7 @@ class _SessionStore:
         title: str | None,
     ) -> _FakeSession:
         obj.title = title
-        obj.updated_at = datetime.now(tz=timezone.utc)
+        obj.updated_at = datetime.now(tz=UTC)
         return obj
 
     async def delete_session(self, _db: Any, *, obj: _FakeSession) -> None:

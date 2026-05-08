@@ -12,7 +12,7 @@ from typing import Annotated
 from fastapi import Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.context import current_user_id
+from app.core.context import current_tenant_id, current_user_id
 from app.db.base import get_meta_session
 from app.db.models import User
 from app.services import user_repo
@@ -32,8 +32,19 @@ async def get_current_user_id() -> uuid.UUID:
         raise _unauthorized() from exc
 
 
+async def get_current_tenant_id() -> uuid.UUID:
+    raw = current_tenant_id.get()
+    if raw is None:
+        raise _unauthorized()
+    try:
+        return uuid.UUID(raw)
+    except (ValueError, TypeError) as exc:
+        raise _unauthorized() from exc
+
+
 # 复用别名，避免在每个 endpoint 重复写一长串 Annotated[...]
 CurrentUserId = Annotated[uuid.UUID, Depends(get_current_user_id)]
+CurrentTenantId = Annotated[uuid.UUID, Depends(get_current_tenant_id)]
 MetaSession = Annotated[AsyncSession, Depends(get_meta_session)]
 
 

@@ -36,12 +36,10 @@ class _FakeSession:
         self._tables = tables
         self._columns = columns
 
-    async def execute(self, stmt: Any) -> "_FakeResult":
+    async def execute(self, stmt: Any) -> _FakeResult:
         # 简化：根据 stmt 是 select(SemanticTable) 还是 select(SemanticColumn) 返回不同
         from app.db.models import SemanticColumn, SemanticTable
 
-        # SQLAlchemy `select` 第一个 column 是判断标准
-        cols = list(stmt.selected_columns) if hasattr(stmt, "selected_columns") else []
         first = stmt.column_descriptions[0]["entity"] if stmt.column_descriptions else None
         if first is SemanticTable:
             return _FakeResult(self._tables)
@@ -54,7 +52,7 @@ class _FakeResult:
     def __init__(self, items: list) -> None:
         self._items = items
 
-    def scalars(self) -> "_FakeScalars":
+    def scalars(self) -> _FakeScalars:
         return _FakeScalars(self._items)
 
 

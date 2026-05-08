@@ -24,7 +24,6 @@ from app.core.security import create_access_token
 from app.db.models import ChatSession, Message
 from app.db.models.iam import Tenant, User
 
-
 # ============ in-memory store ============
 
 
@@ -175,6 +174,13 @@ async def _async_true():
 # ============ mock graph ============
 
 
+class _Snap:
+    """模拟 graph.aget_state 返回的快照：暴露 .values 字段。"""
+
+    def __init__(self, values: dict[str, Any]) -> None:
+        self.values = values
+
+
 class _MockGraph:
     """固定 chunk 序列：
     updates(retrieve) → updates(sql_gen) → updates(sql_validate)
@@ -199,11 +205,7 @@ class _MockGraph:
             await asyncio.sleep(0)  # 让出事件循环
 
     async def aget_state(self, _config):
-        # 模拟成功状态：error=None
-        class _Snap:
-            values = {"error": None}
-
-        return _Snap()
+        return _Snap({"error": None})
 
 
 class _FailGraph(_MockGraph):
@@ -222,10 +224,7 @@ class _FailGraph(_MockGraph):
         ]
 
     async def aget_state(self, _config):
-        class _Snap:
-            values = {"error": "UnregisteredTableError: evil2"}
-
-        return _Snap()
+        return _Snap({"error": "UnregisteredTableError: evil2"})
 
 
 # ============ helper：解析 SSE 流 ============

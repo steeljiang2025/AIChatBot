@@ -136,4 +136,16 @@ async def add_message(
 
     Returns: 已 flush 的 Message 实体（含 id / created_at）。
     """
-    raise NotImplementedError
+    msg = Message(
+        session_id=session_id,
+        tenant_id=tenant_id,
+        user_id=user_id,
+        role=role,
+        content=content,
+        extra=extra,
+        token_usage=token_usage,
+    )
+    session.add(msg)
+    await session.flush()
+    await session.refresh(msg)
+    return msg

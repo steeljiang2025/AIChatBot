@@ -10,11 +10,9 @@ from __future__ import annotations
 import json
 from typing import Any
 
-import pytest
 from langchain_core.messages import AIMessage, AIMessageChunk
 
 from app.services.sse import encode_sse, translate_chunk
-
 
 # ============ encode_sse ============
 
@@ -25,8 +23,7 @@ def test_encode_sse_dict_data() -> None:
     text = out.decode("utf-8")
     assert text.startswith("event: token\n")
     assert "data: " in text
-    # 解析 data 行
-    data_line = [line for line in text.split("\n") if line.startswith("data: ")][0]
+    data_line = next(line for line in text.split("\n") if line.startswith("data: "))
     parsed = json.loads(data_line[len("data: "):])
     assert parsed == {"delta": "hi", "node": "summarize"}
 
@@ -191,7 +188,7 @@ def test_translate_unknown_mode_yields_nothing() -> None:
 
 def _parse_data(frame: bytes) -> Any:
     text = frame.decode("utf-8")
-    line = [line for line in text.split("\n") if line.startswith("data: ")][0]
+    line = next(ln for ln in text.split("\n") if ln.startswith("data: "))
     return json.loads(line[len("data: "):])
 
 

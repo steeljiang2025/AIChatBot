@@ -18,6 +18,11 @@ import {
 } from "@ant-design/icons";
 import dayjs from "dayjs";
 import classNames from "classnames";
+import {
+  createSessionRemote,
+  deleteSessionRemote,
+  patchSessionRemote,
+} from "@/api/sessions";
 import { useSessionStore } from "@/store/sessionStore";
 import type { ChatSession } from "@/types/chat";
 import "./SessionList.css";
@@ -40,11 +45,17 @@ function groupKey(s: ChatSession): Group {
   return "earlier";
 }
 
-export default function SessionList(): JSX.Element {
+interface Props {
+  /** true：新建/重命名/删除走 REST；false：仅本地 zustand */
+  useRemoteList: boolean;
+}
+
+export default function SessionList({ useRemoteList }: Props): JSX.Element {
   const sessions = useSessionStore((s) => s.sessions);
   const activeId = useSessionStore((s) => s.activeId);
   const setActive = useSessionStore((s) => s.setActive);
   const createSession = useSessionStore((s) => s.createSession);
+  const prependSession = useSessionStore((s) => s.prependSession);
   const renameSession = useSessionStore((s) => s.renameSession);
   const removeSession = useSessionStore((s) => s.removeSession);
 
@@ -60,7 +71,17 @@ export default function SessionList(): JSX.Element {
     return m;
   }, [sessions]);
 
-  const handleNew = () => {
+  const handleNew = async () => {
+    if (useRemoteList) {
+      try {
+        const s = await createSessionRemote({ title: "新对话" });
+        prependSession(s);
+        message.success("已创建会话");
+      } catch {
+        message.error("创建会话失败");
+      }
+      return;
+    }
     const s = createSession();
     message.success(`已创建会话「${s.title}」`);
   };
@@ -69,12 +90,36 @@ export default function SessionList(): JSX.Element {
     setRenameTarget(s);
     setRenameValue(s.title);
   };
-  const submitRename = () => {
+
+  const submitRename = async () => {
     if (!renameTarget) return;
     const v = renameValue.trim();
     if (!v) return;
+    if (useRemoteList) {
+      try {
+        await patchSessionRemote(renameTarget.id, { title: v });
+        renameSession(renameTarget.id, v);
+        setRenameTarget(null);
+      } catch {
+        message.error("重命名失败");
+      }
+      return;
+    }
     renameSession(renameTarget.id, v);
     setRenameTarget(null);
+  };
+
+  const handleDelete = async (id: string) => {
+    if (useRemoteList) {
+      try {
+        await deleteSessionRemote(id);
+        removeSession(id);
+      } catch {
+        message.error("删除失败");
+      }
+      return;
+    }
+    removeSession(id);
   };
 
   return (
@@ -85,7 +130,7 @@ export default function SessionList(): JSX.Element {
           size="small"
           type="primary"
           icon={<PlusOutlined />}
-          onClick={handleNew}
+          onClick={() => void handleNew()}
         >
           新建
         </Button>
@@ -129,7 +174,7 @@ export default function SessionList(): JSX.Element {
                           cancelText="取消"
                           onConfirm={(e) => {
                             e?.stopPropagation();
-                            removeSession(s.id);
+                            void handleDelete(s.id);
                           }}
                           onCancel={(e) => e?.stopPropagation()}
                         >
@@ -154,7 +199,7 @@ export default function SessionList(): JSX.Element {
         title="重命名会话"
         open={renameTarget !== null}
         onCancel={() => setRenameTarget(null)}
-        onOk={submitRename}
+        onOk={() => void submitRename()}
         okText="保存"
         cancelText="取消"
         destroyOnHidden
@@ -163,7 +208,7 @@ export default function SessionList(): JSX.Element {
           autoFocus
           value={renameValue}
           onChange={(e) => setRenameValue(e.target.value)}
-          onPressEnter={submitRename}
+          onPressEnter={() => void submitRename()}
           maxLength={50}
         />
       </Modal>

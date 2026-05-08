@@ -89,7 +89,8 @@ services:
       - ../frontend/package.json:/app/package.json:Z
       - aichatbot-frontend-node-modules:/app/node_modules
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
 volumes:
   aichatbot-pgdata:

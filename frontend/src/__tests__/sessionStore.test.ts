@@ -19,6 +19,28 @@ describe("sessionStore", () => {
     expect(useSessionStore.getState().sessions[0].title).toBe("新标题");
   });
 
+  it("prependSession 插入并激活", () => {
+    useSessionStore.getState().createSession("a");
+    const s2 = { id: "id-2", title: "b", updatedAt: new Date().toISOString() };
+    useSessionStore.getState().prependSession(s2);
+    expect(useSessionStore.getState().activeId).toBe("id-2");
+    expect(useSessionStore.getState().sessions[0].title).toBe("b");
+  });
+
+  it("replaceSessions 可指定 activeId", () => {
+    useSessionStore.getState().createSession("a");
+    useSessionStore.getState().createSession("b");
+    useSessionStore.getState().replaceSessions(
+      [
+        { id: "x1", title: "X1", updatedAt: new Date().toISOString() },
+        { id: "x2", title: "X2", updatedAt: new Date().toISOString() },
+      ],
+      "x2",
+    );
+    expect(useSessionStore.getState().activeId).toBe("x2");
+    expect(useSessionStore.getState().sessions).toHaveLength(2);
+  });
+
   it("removeSession 移除并切到下一个", () => {
     const s1 = useSessionStore.getState().createSession("一");
     const s2 = useSessionStore.getState().createSession("二");

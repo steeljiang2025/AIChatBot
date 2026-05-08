@@ -1,15 +1,14 @@
 // =============================================================
 // useChatStream
 //
-// VITE_USE_MOCK_SSE !== "false"：走 mocks/sseServer。
-// 否则：fetchEventSource("/api/chat/stream", ...) 与后端 STE-24 对齐：
-//   - POST body: { session_id, content }
-//   - Header: Authorization: Bearer <access_token>
-//   - SSE data 字段与 `app/services/sse.py` 一致
+// Mock / 真实分流见 `config/runtimeMode.ts`（`useMockSse`）。
+// 真实流：`fetchEventSource` + `onopen` 校验 content-type / 401；
+// POST body `{ session_id, content }`；Bearer JWT。
 // =============================================================
 
 import { useCallback } from "react";
 import {
+  EventStreamContentType,
   fetchEventSource,
   type EventSourceMessage,
 } from "@microsoft/fetch-event-source";
@@ -18,6 +17,8 @@ import {
   type MockStreamHandle,
 } from "@/mocks/sseServer";
 import { buildChatStreamBody } from "@/api/chat";
+import { patchSessionRemote } from "@/api/sessions";
+import { useMockSse } from "@/config/runtimeMode";
 import { useAuthStore } from "@/store/authStore";
 import { useChatStore } from "@/store/chatStore";
 import { useChartStore } from "@/store/chartStore";
@@ -31,10 +32,7 @@ import type {
   SseEnvelope,
 } from "@/types/chat";
 
-const USE_MOCK = import.meta.env.VITE_USE_MOCK_SSE !== "false";
-
 interface SendOptions {
-  /** 远程 SSE endpoint（mock 关闭时使用） */
   endpoint?: string;
 }
 
@@ -61,6 +59,20 @@ function normalizeRowsPayload(raw: unknown): RowsPayload {
     return { columns, data: rows };
   }
   return { columns, data: [] };
+}
+
+async function assertSseResponseOk(response: Response): Promise<void> {
+  if (response.status === 401) {
+    throw new Error("SSE_AUTH_401");
+  }
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new Error(`SSE_HTTP_${response.status}:${body.slice(0, 400)}`);
+  }
+  const ct = response.headers.get("content-type") ?? "";
+  if (!ct.toLowerCase().includes(EventStreamContentType)) {
+    throw new Error(`SSE_BAD_CONTENT_TYPE:${ct}`);
+  }
 }
 
 function dispatch(sessionId: string, env: SseEnvelope): void {
@@ -128,6 +140,11 @@ export function useChatStream(): {
       if (target && (target.title === "新对话" || target.title === "")) {
         const title = prompt.slice(0, 18) + (prompt.length > 18 ? "…" : "");
         session.renameSession(sessionId, title);
+        if (!useMockSse()) {
+          void patchSessionRemote(sessionId, { title }).catch(() => {
+            /* 标题同步失败不阻塞对话 */
+          });
+        }
       }
       session.touch(sessionId);
 
@@ -143,7 +160,7 @@ export function useChatStream(): {
 
       chat.startAssistantMessage(sessionId, handle);
 
-      if (USE_MOCK) {
+      if (useMockSse()) {
         mockHandle = startMockStream(prompt, {
           onEvent: (env) => dispatch(sessionId, env),
         });
@@ -160,11 +177,14 @@ export function useChatStream(): {
         headers.Authorization = `Bearer ${token}`;
       }
 
-      fetchEventSource(endpoint, {
+      void fetchEventSource(endpoint, {
         method: "POST",
         headers,
         body: JSON.stringify(buildChatStreamBody(sessionId, prompt)),
         signal: abortController.signal,
+        async onopen(response) {
+          await assertSseResponseOk(response);
+        },
         onmessage(ev: EventSourceMessage) {
           if (!ev.event) return;
           try {
@@ -179,15 +199,23 @@ export function useChatStream(): {
         },
         onerror(err: unknown) {
           const c = useChatStore.getState();
+          const msg = err instanceof Error ? err.message : String(err);
+          if (msg === "SSE_AUTH_401") {
+            useAuthStore.getState().clear();
+            window.location.assign("/login?reason=401");
+            throw err instanceof Error ? err : new Error(msg);
+          }
           c.setError(
             sessionId,
             "STREAM_ERROR",
-            err instanceof Error ? err.message : "网络错误",
+            msg || "网络错误",
           );
           c.finalizeAssistantMessage(sessionId);
-          throw err;
+          throw err instanceof Error ? err : new Error(msg);
         },
         openWhenHidden: true,
+      }).catch(() => {
+        /* onerror 已 throw 时进入；静默避免控制台 Unhandled */
       });
     },
     [],

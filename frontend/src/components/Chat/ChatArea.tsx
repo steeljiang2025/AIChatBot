@@ -1,7 +1,10 @@
-import { Empty, Space, Tag, Typography } from "antd";
+import { useEffect } from "react";
+import { Empty, Space, Tag, Typography, message } from "antd";
 import { useActiveSession } from "@/store/sessionStore";
 import { useChatStore } from "@/store/chatStore";
 import { useChatStream } from "@/hooks/useChatStream";
+import { fetchSessionMessages } from "@/api/sessions";
+import { mapMessageApiToChatMessage } from "@/api/mappers";
 import type { ChatMessage } from "@/types/chat";
 import MessageList from "./MessageList";
 import Composer from "./Composer";
@@ -10,7 +13,12 @@ const { Text } = Typography;
 
 const EMPTY_MESSAGES: ChatMessage[] = [];
 
-export default function ChatArea(): JSX.Element {
+interface Props {
+  /** true：切换会话时从 GET /sessions/:id/messages 拉历史 */
+  loadHistory: boolean;
+}
+
+export default function ChatArea({ loadHistory }: Props): JSX.Element {
   const session = useActiveSession();
   const sessionId = session?.id;
   const messages = useChatStore((s) =>
@@ -19,7 +27,29 @@ export default function ChatArea(): JSX.Element {
   const streamingId = useChatStore((s) =>
     sessionId ? s.streamingMessageId[sessionId] : undefined,
   );
+  const replaceSessionMessages = useChatStore((s) => s.replaceSessionMessages);
   const { send, abort } = useChatStream();
+
+  useEffect(() => {
+    if (!loadHistory || !sessionId) return;
+    const sid = sessionId;
+    let cancelled = false;
+    (async () => {
+      try {
+        const list = await fetchSessionMessages(sid, { limit: 200, offset: 0 });
+        if (cancelled) return;
+        const mapped = list.items.map(mapMessageApiToChatMessage);
+        replaceSessionMessages(sid, mapped);
+      } catch {
+        if (!cancelled) {
+          message.error("加载历史消息失败");
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [loadHistory, sessionId, replaceSessionMessages]);
 
   if (!session) {
     return (

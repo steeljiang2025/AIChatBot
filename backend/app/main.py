@@ -22,6 +22,7 @@ from app.api.sessions import router as sessions_router
 from app.core.config import get_settings
 from app.core.logging import setup_logging
 from app.core.middleware import JWTAuthMiddleware
+from app.core.request_id import RequestIdMiddleware
 from app.db.base import (
     MetaSession,
     biz_engine,
@@ -111,8 +112,8 @@ def create_app() -> FastAPI:
     )
 
     # 中间件加载顺序：FastAPI 按 LIFO 包装 → 后 add 的位于外层。
-    # 因此先 add JWT、再 add CORS，运行顺序是 CORS → JWT → handler，
-    # CORS preflight (OPTIONS) 由 CORSMiddleware 直接回复，不会被 JWT 拦。
+    # RequestId → CORS → JWT → handler：最外层先打 request id，再 CORS 预检，
+    # 最后 JWT 鉴权。
     app.add_middleware(JWTAuthMiddleware)
     app.add_middleware(
         CORSMiddleware,
@@ -121,6 +122,7 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    app.add_middleware(RequestIdMiddleware)
 
     app.include_router(health_router)
     app.include_router(auth_router)

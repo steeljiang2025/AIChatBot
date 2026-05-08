@@ -178,7 +178,12 @@ export default function ChartPanel(): JSX.Element {
               size="small"
               columns={tableColumns}
               dataSource={tableData}
-              pagination={{ pageSize: 10, showSizeChanger: false }}
+              pagination={{
+                pageSize: 20,
+                showSizeChanger: true,
+                pageSizeOptions: [10, 20, 50, 100],
+                showTotal: (t) => `共 ${t} 行`,
+              }}
               scroll={{ x: "max-content", y: 360 }}
             />
           ) : (

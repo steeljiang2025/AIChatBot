@@ -56,7 +56,7 @@ export default function Composer({
         }}
       >
         <Text type="secondary" style={{ fontSize: 12 }}>
-          {streaming ? "AI 正在生成回答…" : "Phase 2 · Mock SSE"}
+          {streaming ? "AI 正在生成回答…" : "Enter 发送，Shift+Enter 换行"}
         </Text>
         {streaming ? (
           <Button danger icon={<StopOutlined />} onClick={onAbort}>

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import {
   Alert,
   Button,
@@ -40,6 +40,9 @@ export default function LoginPage(): JSX.Element {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const mockAuth = useMockAuth();
+
+  const [searchParams] = useSearchParams();
+  const expiredBy401 = searchParams.get("reason") === "401";
 
   const from = (location.state as { from?: string } | null)?.from ?? "/workspace";
 
@@ -96,7 +99,7 @@ export default function LoginPage(): JSX.Element {
             </Space>
             {mockAuth ? (
               <Text type="secondary">
-                Phase 2 本地 mock 登录（<code>VITE_USE_MOCK_AUTH</code> 未设为{" "}
+                Phase 4：本地 mock 登录（<code>VITE_USE_MOCK_AUTH</code> 未设为{" "}
                 <code>false</code>）：<code>admin / admin</code> 或{" "}
                 <code>demo / demo</code>。
               </Text>
@@ -107,6 +110,14 @@ export default function LoginPage(): JSX.Element {
                 ），成功后使用 <code>access_token</code> 调用 <code>/auth/me</code>
                 。
               </Text>
+            )}
+            {expiredBy401 && (
+              <Alert
+                type="warning"
+                showIcon
+                message="登录已失效或未授权，请重新登录"
+                style={{ marginBottom: 8 }}
+              />
             )}
             {error && <Alert type="error" showIcon message={error} />}
             {mockAuth ? (

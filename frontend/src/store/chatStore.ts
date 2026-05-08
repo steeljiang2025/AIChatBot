@@ -56,6 +56,8 @@ interface ChatState {
   setError: (sessionId: string, code: string, message: string) => void;
   finalizeAssistantMessage: (sessionId: string) => void;
   abortStreaming: (sessionId: string) => void;
+  /** Phase 4：用后端历史消息替换内存中的该会话消息列表 */
+  replaceSessionMessages: (sessionId: string, messages: ChatMessage[]) => void;
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -163,6 +165,19 @@ export const useChatStore = create<ChatState>((set, get) => ({
     handle?.abort();
     get().finalizeAssistantMessage(sessionId);
   },
+
+  replaceSessionMessages: (sessionId, messages) =>
+    set((s) => ({
+      messagesBySession: {
+        ...s.messagesBySession,
+        [sessionId]: messages,
+      },
+      streamingMessageId: {
+        ...s.streamingMessageId,
+        [sessionId]: undefined,
+      },
+      streamingHandle: { ...s.streamingHandle, [sessionId]: undefined },
+    })),
 }));
 
 /** 给当前会话最后一条助手消息打补丁的内部 helper */

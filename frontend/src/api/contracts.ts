@@ -28,6 +28,16 @@ export interface AuthUserResponse {
   is_active: boolean;
 }
 
+/** POST /sessions */
+export interface SessionCreateBody {
+  title?: string | null;
+}
+
+/** PATCH /sessions/{id} */
+export interface SessionPatchBody {
+  title?: string | null;
+}
+
 /** GET /sessions 单项 */
 export interface SessionApiItem {
   id: string;

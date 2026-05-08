@@ -52,6 +52,12 @@ class Settings(BaseSettings):
     qwen_chat_model: str = Field(default="qwen3-max")
     qwen_embedding_model: str = Field(default="text-embedding-v4")
     qwen_embedding_dim: int = Field(default=1024)
+    # 以下 4 个字段允许通过 .env 覆盖；默认值与
+    # `.cursor/plans/...plan.md` §3.4.1 (6) 已 probe 验证的字段集对齐。
+    qwen_chat_temperature: float = Field(default=0.2)
+    qwen_chat_max_tokens: int = Field(default=2048)
+    qwen_chat_timeout: int = Field(default=30)
+    qwen_chat_max_retries: int = Field(default=2)
 
     # ---- JWT（Phase3 才会用到） ----
     jwt_secret: str = Field(default="change-me-to-a-long-random-string")

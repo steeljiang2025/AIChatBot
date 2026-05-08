@@ -14,7 +14,6 @@ import pytest
 
 from app.llm import render_prompt
 
-
 # ---- sql_gen ----
 
 

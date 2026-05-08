@@ -17,9 +17,7 @@ from typing import Any
 import pytest
 
 from app.core.config import get_settings
-from app.llm import LLMAuthError, LLMError, LLMRateLimitError, LLMTimeoutError
-from app.llm import embedding, qwen
-
+from app.llm import LLMAuthError, LLMError, LLMRateLimitError, LLMTimeoutError, embedding, qwen
 
 # ---- 公共：lru_cache 重置 ----
 

@@ -115,3 +115,25 @@ async def list_messages_for_session(
     )
     result = await session.execute(items_stmt)
     return list(result.scalars().all()), int(total)
+
+
+async def add_message(
+    session: AsyncSession,
+    *,
+    session_id: uuid.UUID,
+    tenant_id: uuid.UUID,
+    user_id: uuid.UUID | None,
+    role: str,
+    content: str,
+    extra: dict | None = None,
+    token_usage: dict | None = None,
+) -> Message:
+    """STE-24：往某会话里追加一条消息。
+
+    调用方需先用 get_session_scoped 校验过会话归属（本函数不做权限校验，
+    只做插入）。tenant_id 冗余存到 Message 上，供 SQL 安全模块 / 审计
+    在不 join 的情况下做多租户过滤。
+
+    Returns: 已 flush 的 Message 实体（含 id / created_at）。
+    """
+    raise NotImplementedError

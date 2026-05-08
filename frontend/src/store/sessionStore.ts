@@ -7,6 +7,10 @@ interface SessionState {
   sessions: ChatSession[];
   activeId: string | null;
   hydrate: (sessions: ChatSession[]) => void;
+  /** Phase 4：用服务端列表整体替换本地（并可选指定当前会话） */
+  replaceSessions: (sessions: ChatSession[], activeId?: string | null) => void;
+  /** 将服务端返回的会话插到列表首位并激活 */
+  prependSession: (session: ChatSession) => void;
   setActive: (id: string | null) => void;
   createSession: (title?: string) => ChatSession;
   renameSession: (id: string, title: string) => void;
@@ -18,6 +22,17 @@ export const useSessionStore = create<SessionState>((set) => ({
   sessions: [],
   activeId: null,
   hydrate: (sessions) => set({ sessions, activeId: sessions[0]?.id ?? null }),
+  replaceSessions: (sessions, activeId) =>
+    set({
+      sessions,
+      activeId:
+        activeId === undefined ? (sessions[0]?.id ?? null) : activeId,
+    }),
+  prependSession: (session) =>
+    set((s) => ({
+      sessions: [session, ...s.sessions.filter((x) => x.id !== session.id)],
+      activeId: session.id,
+    })),
   setActive: (id) => set({ activeId: id }),
   createSession: (title = "新对话") => {
     const session: ChatSession = {

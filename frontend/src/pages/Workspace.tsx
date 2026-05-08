@@ -1,9 +1,11 @@
 import { useEffect } from "react";
-import { Layout, Avatar, Dropdown, Space, Tag, Tooltip, Typography, Button } from "antd";
+import { Layout, Avatar, Dropdown, Space, Tag, Tooltip, Typography, Button, message } from "antd";
 import { LogoutOutlined, ThunderboltFilled, UserOutlined } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
+import { fetchSessions } from "@/api/sessions";
 import { useAuthStore } from "@/store/authStore";
 import { useSessionStore } from "@/store/sessionStore";
+import { useMockSessionList } from "@/config/runtimeMode";
 import SessionList from "@/components/Sidebar/SessionList";
 import ChatArea from "@/components/Chat/ChatArea";
 import ChartPanel from "@/components/Chart/ChartPanel";
@@ -14,14 +16,41 @@ const { Text } = Typography;
 
 export default function Workspace(): JSX.Element {
   const user = useAuthStore((s) => s.user);
+  const token = useAuthStore((s) => s.token);
   const clear = useAuthStore((s) => s.clear);
   const navigate = useNavigate();
-  const sessions = useSessionStore((s) => s.sessions);
   const hydrate = useSessionStore((s) => s.hydrate);
+  const replaceSessions = useSessionStore((s) => s.replaceSessions);
+  const mockList = useMockSessionList();
 
   useEffect(() => {
-    if (sessions.length === 0) hydrate(seedDemoSessions());
-  }, [sessions.length, hydrate]);
+    if (mockList) {
+      if (useSessionStore.getState().sessions.length === 0) {
+        hydrate(seedDemoSessions());
+      }
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const { items } = await fetchSessions({ limit: 50, offset: 0 });
+        if (cancelled) return;
+        const cur = useSessionStore.getState().activeId;
+        const next =
+          cur && items.some((x) => x.id === cur) ? cur : (items[0]?.id ?? null);
+        replaceSessions(items, next);
+      } catch {
+        if (!cancelled) {
+          message.error("加载会话列表失败，请检查网络或登录状态");
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [mockList, token, hydrate, replaceSessions]);
 
   const handleLogout = () => {
     clear();
@@ -36,7 +65,9 @@ export default function Workspace(): JSX.Element {
           <Text strong style={{ fontSize: 16 }}>
             AIChatBot · 智能数据分析助理
           </Text>
-          <Tag color="processing">Phase 2 · Mock 驱动</Tag>
+          <Tag color={mockList ? "default" : "success"}>
+            {mockList ? "Mock 数据" : "Phase 4 · 后端联调"}
+          </Tag>
         </Space>
         <Space size={12}>
           <Tooltip title={`租户：${user?.tenantId ?? "-"}`}>
@@ -66,10 +97,10 @@ export default function Workspace(): JSX.Element {
 
       <Layout.Content style={styles.content}>
         <aside style={styles.sidebar}>
-          <SessionList />
+          <SessionList useRemoteList={!mockList} />
         </aside>
         <main style={styles.main}>
-          <ChatArea />
+          <ChatArea loadHistory={!mockList} />
         </main>
         <aside style={styles.right}>
           <ChartPanel />

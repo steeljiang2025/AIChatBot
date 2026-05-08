@@ -84,8 +84,11 @@ export default function HealthCheck() {
 
       <Card title="下一步">
         <Paragraph>
-          骨架已就绪。Phase 2 将把这页替换为三栏 Workspace（聊天 + 图表 + 会话列表）；Phase 3 将接入真实的{" "}
-          <Text code>/auth</Text>、<Text code>/sessions</Text>、<Text code>/chat/stream</Text> 接口。
+          Phase 4 已完成前后端联调：Workspace 使用真实{" "}
+          <Text code>/auth</Text>、<Text code>/sessions</Text>、
+          <Text code>/chat/stream</Text>（JWT + SSE）。Mock 账号仍可用于无后端环境的 UI
+          演示；真实 JWT 下自动拉取会话与历史消息。详见仓库根目录{" "}
+          <Text code>README.md</Text>「Phase 4」一节。
         </Paragraph>
       </Card>
     </Space>

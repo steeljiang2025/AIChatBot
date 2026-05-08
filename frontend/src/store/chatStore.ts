@@ -4,13 +4,12 @@ import dayjs from "dayjs";
 import type {
   ChatMessage,
   ChartSpec,
-  NodeName,
   NodeStatus,
   RowsPayload,
   ThinkingNode,
 } from "@/types/chat";
 
-const NODE_LABEL: Record<NodeName, string> = {
+const NODE_LABEL: Record<string, string> = {
   intent: "意图理解",
   retrieve: "语义检索",
   sql_gen: "SQL 生成",
@@ -20,6 +19,10 @@ const NODE_LABEL: Record<NodeName, string> = {
   chart: "图表推荐",
   summarize: "总结回答",
 };
+
+function labelForNode(name: string): string {
+  return NODE_LABEL[name] ?? name;
+}
 
 interface StreamHandle {
   /** 用户主动停止当前流式生成 */
@@ -43,7 +46,7 @@ interface ChatState {
   appendToken: (sessionId: string, delta: string) => void;
   setNodeStatus: (
     sessionId: string,
-    name: NodeName,
+    name: string,
     status: NodeStatus,
     detail?: string,
   ) => void;
@@ -53,6 +56,8 @@ interface ChatState {
   setError: (sessionId: string, code: string, message: string) => void;
   finalizeAssistantMessage: (sessionId: string) => void;
   abortStreaming: (sessionId: string) => void;
+  /** Phase 4：用后端历史消息替换内存中的该会话消息列表 */
+  replaceSessionMessages: (sessionId: string, messages: ChatMessage[]) => void;
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -115,7 +120,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const idx = trace.findIndex((n) => n.name === name);
         const node: ThinkingNode = {
           name,
-          label: NODE_LABEL[name],
+          label: labelForNode(name),
           status,
           detail,
         };
@@ -160,6 +165,19 @@ export const useChatStore = create<ChatState>((set, get) => ({
     handle?.abort();
     get().finalizeAssistantMessage(sessionId);
   },
+
+  replaceSessionMessages: (sessionId, messages) =>
+    set((s) => ({
+      messagesBySession: {
+        ...s.messagesBySession,
+        [sessionId]: messages,
+      },
+      streamingMessageId: {
+        ...s.streamingMessageId,
+        [sessionId]: undefined,
+      },
+      streamingHandle: { ...s.streamingHandle, [sessionId]: undefined },
+    })),
 }));
 
 /** 给当前会话最后一条助手消息打补丁的内部 helper */

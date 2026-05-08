@@ -26,7 +26,7 @@ React 18 + AntD + ECharts        FastAPI + LangGraph
 AIChatBot/
 ├── backend/             # FastAPI 后端（容器化）
 │   ├── app/
-│   │   ├── api/         # 路由（health 已就绪；auth/sessions/chat/semantics 留待 Phase3）
+│   │   ├── api/         # 路由（health / auth / sessions / semantics / chat）
 │   │   ├── core/        # 配置、日志、安全（Phase3 起完整）
 │   │   ├── db/          # SQLAlchemy 异步 engine
 │   │   └── main.py
@@ -114,11 +114,49 @@ make smoke                              # 容器健康 + /health + 5173 + schema
 bash scripts/smoke.sh --with-tests      # 顺带跑容器内 pytest + vitest
 ```
 
-## 后续阶段
+## Phase 4（前后端联调）— 已实现
+
+目标：去掉 Phase 2 的纯前端 Mock，在 **真实 JWT + REST + SSE** 下跑通工作区。
+
+### 前端行为摘要
+
+| 能力 | 说明 |
+|------|------|
+| 会话 | `GET/POST/PATCH/DELETE /sessions`；切换会话时 `GET .../messages` 拉历史 |
+| 聊天流 | `POST /chat/stream` + `fetchEventSource`；`onopen` 校验 401 / content-type |
+| Mock 分流 | `token` 以 `mock.` 开头 → 本地 seed + mock SSE（无后端也可演示）；真实 JWT → 走后端 |
+| 环境变量 | `VITE_USE_MOCK_SSE` / `VITE_USE_MOCK_SESSIONS` / `VITE_USE_MOCK_AUTH` 可显式 `true`/`false` 覆盖 |
+| 401 | axios 与 SSE 均会清空登录态并跳转 `/login?reason=401` |
+
+### 全栈启动（与 Phase 1 一致）
+
+```bash
+cp infra/.env.example infra/.env
+cp backend/.env.example backend/.env
+cp frontend/.env.example frontend/.env
+# 填 DASHSCOPE_API_KEY、JWT_SECRET；联调真实后端时把 frontend/.env 中 VITE_USE_MOCK_* 设为 false
+make up
+```
+
+浏览器：`http://localhost:<FRONTEND_PORT>/`（默认见 `infra/.env` 中 `FRONTEND_PORT`，常见为 5174）→ 使用 **真实租户** 登录（`VITE_USE_MOCK_AUTH=false`）→ Workspace 自动拉会话与历史消息 → 提问走 SSE。
+
+### 后端可观测性
+
+- 每个 HTTP 响应带 **`X-Request-ID`**（`RequestIdMiddleware`），便于与日志关联。
+
+### 验收清单（Phase 4.3 / 4.5）
+
+- [ ] 登录 → 新建会话 → 自然语言提问 → 出现 SQL / 表格 / 图表（依赖 Qwen 与业务库数据）
+- [ ] 同一会话多轮追问（LangGraph PostgresSaver 线程 id = `session_id`）
+- [ ] SQL 校验失败或权限错误时 SSE `error` + 页面兜底
+- [ ] `podman compose ps` 全绿、`make smoke` 通过
+
+---
+
+## 历史阶段（已完成）
 
 - **Phase 2**：前端三栏 Workspace、登录页、聊天 UI、ECharts、SSE Mock（Mock 驱动）
 - **Phase 3**：JWT 鉴权、Alembic 迁移、Qwen3 接入、语义 RAG、SQL 安全层、LangGraph + AsyncPostgresSaver、`/chat/stream` SSE
-- **Phase 4**：前端去 Mock 联调、端到端用例、性能与可观测性、部署文档
 
 ## 开发规则
 

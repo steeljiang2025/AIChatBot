@@ -12,7 +12,6 @@ import pytest
 from app.core.config import _derive_checkpoint_url
 from app.graph.checkpointer import derive_checkpoint_db_url
 
-
 # ---- core.config._derive_checkpoint_url（兼容 graph.checkpointer 模块函数）----
 
 

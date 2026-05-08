@@ -1,30 +1,39 @@
-"""STE-23：sql_exec 节点（占位）。
+"""STE-23：sql_exec 节点。
 
 用 biz_engine 只读连接执行 validated_sql；用 SQLAlchemy `bindparam(:tid)`
 绑定 tenant_id（与 STE-22 注入的占位符 `:tid` 对齐）。
-
-输入：state.validated_sql / state.tenant_id
-输出：state.rows（list[dict]，列名 → 值）；列序由结果集决定
-
-config.configurable：
-- biz_engine: SQLAlchemy AsyncEngine
-- sql_exec_timeout_ms: 单次 SQL 的 statement_timeout（毫秒）
-
-错误处理：DB 异常（语法/超时/网络）抛回，由 LangGraph 异常机制传播；
-本节点不捕获异常以保留 stack。生产可在 builder 上下文用 retry policy 包装。
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-if TYPE_CHECKING:
-    from langchain_core.runnables import RunnableConfig
+from langchain_core.runnables import RunnableConfig
+from sqlalchemy import text
 
+if TYPE_CHECKING:
     from app.graph.state import AgentState
 
 
+_DEFAULT_TIMEOUT_MS = 30000
+
+
 async def sql_exec(
-    state: "AgentState", config: "RunnableConfig"
+    state: AgentState, config: RunnableConfig
 ) -> dict[str, Any]:
-    raise NotImplementedError
+    cfg: dict[str, Any] = config.get("configurable", {}) or {}
+    biz_engine = cfg["biz_engine"]
+    timeout_ms = int(cfg.get("sql_exec_timeout_ms", _DEFAULT_TIMEOUT_MS))
+
+    sql = state["validated_sql"]
+    tenant_id = state["tenant_id"]
+
+    async with biz_engine.connect() as conn:
+        # 单连接级别限制：避免单条 SQL 拖死业务库
+        await conn.execute(
+            text(f"SET LOCAL statement_timeout = {timeout_ms}")
+        )
+        result = await conn.execute(text(sql), {"tid": str(tenant_id)})
+        rows = [dict(r._mapping) for r in result]
+
+    return {"rows": rows}

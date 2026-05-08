@@ -1,7 +1,9 @@
 """FastAPI 应用入口。
 
-Phase1 仅装载 health/version 路由，并完成 lifespan 钩子（启动期数据库探针）。
-Phase3 起会在此处挂载 auth/sessions/chat/semantics 等业务路由。
+Phase3 起 lifespan 串起：
+- DB probe（meta / biz）
+- LangGraph 工作流装配（依赖 checkpointer schema）
+- 业务侧路由：health / auth / sessions / semantics（chat 留给 STE-24）
 """
 
 from __future__ import annotations
@@ -19,24 +21,80 @@ from app.api.sessions import router as sessions_router
 from app.core.config import get_settings
 from app.core.logging import setup_logging
 from app.core.middleware import JWTAuthMiddleware
-from app.db.base import biz_engine, dispose_engines, meta_engine, ping_engine
+from app.db.base import (
+    MetaSession,
+    biz_engine,
+    dispose_engines,
+    meta_engine,
+    ping_engine,
+)
+from app.graph.builder import build_graph
+from app.graph.checkpointer import open_checkpointer
 
 _logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def _graph_lifespan(app: FastAPI, checkpoint_db_url: str):
+    """LangGraph 工作流的子 lifespan。
+
+    成功：app.state.graph = CompiledStateGraph，pool 在退出时自动关闭。
+    失败：打 warning + app.state.graph = None；不阻塞应用启动，让其它
+    路由（health / auth / sessions / semantics）仍可正常工作。
+    """
+    try:
+        async with open_checkpointer(checkpoint_db_url) as cp:
+            app.state.graph = build_graph(cp)
+            _logger.info(
+                "LangGraph 装配完成（checkpointer setup OK，schema=checkpoint）"
+            )
+            yield
+    except Exception as exc:
+        _logger.warning(
+            "LangGraph 不装配（checkpointer 启动失败）: %s", exc, exc_info=True
+        )
+        app.state.graph = None
+        yield
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
     setup_logging(settings.app_log_level)
-    _logger.info("Starting %s v%s [env=%s]", settings.app_name, settings.app_version, settings.app_env)
+    _logger.info(
+        "Starting %s v%s [env=%s]",
+        settings.app_name,
+        settings.app_version,
+        settings.app_env,
+    )
 
     meta_ok = await ping_engine(meta_engine)
     biz_ok = await ping_engine(biz_engine)
-    _logger.info("DB probe — meta=%s biz=%s", "ok" if meta_ok else "down", "ok" if biz_ok else "down")
+    _logger.info(
+        "DB probe — meta=%s biz=%s",
+        "ok" if meta_ok else "down",
+        "ok" if biz_ok else "down",
+    )
 
-    yield
+    # STE-21 / STE-23 节点共享：semantics router 已用 app.state.business_engine
+    # 探针；graph 节点 retrieve 用 meta_session_factory；sql_exec 用 biz_engine。
+    app.state.business_engine = biz_engine
+    app.state.meta_session_factory = MetaSession
+    app.state.graph = None  # 默认 None，graph_lifespan 成功才覆盖
 
-    _logger.info("Shutting down ...")
+    if meta_ok:
+        async with _graph_lifespan(app, settings.checkpoint_db_url):
+            try:
+                yield
+            finally:
+                _logger.info("Shutting down ...")
+    else:
+        _logger.warning("meta DB down — 跳过 LangGraph 装配，应用降级启动")
+        try:
+            yield
+        finally:
+            _logger.info("Shutting down ...")
+
     await dispose_engines()
 
 

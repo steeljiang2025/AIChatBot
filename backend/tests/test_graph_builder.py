@@ -321,7 +321,7 @@ class _FakeHit:
 
 
 class _AsyncSessionFactoryStub:
-    def __call__(self) -> "_AsyncSessionFactoryStub":
+    def __call__(self) -> _AsyncSessionFactoryStub:
         return self
 
     async def __aenter__(self) -> object:
@@ -335,7 +335,7 @@ class _FakeEngine:
     def __init__(self, result_rows: list[dict]) -> None:
         self._rows = result_rows
 
-    def connect(self) -> "_FakeConn":
+    def connect(self) -> _FakeConn:
         return _FakeConn(self._rows)
 
 
@@ -343,7 +343,7 @@ class _FakeConn:
     def __init__(self, rows: list[dict]) -> None:
         self._rows = rows
 
-    async def __aenter__(self) -> "_FakeConn":
+    async def __aenter__(self) -> _FakeConn:
         return self
 
     async def __aexit__(self, *args: Any) -> None:

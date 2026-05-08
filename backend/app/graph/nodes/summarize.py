@@ -1,27 +1,49 @@
-"""STE-23：summarize 节点（占位）。
+"""STE-23：summarize 节点。
 
 渲染 STE-20 `summarize.j2` prompt，让 LLM 给出 ≤ 3 句业务总结。
-失败兜底（state.error 存在 + retries 达上限）→ 把错误信息以友好语言告知用户。
+失败兜底（state.error 存在）→ 用同一个 prompt（`summarize.j2` 已支持 error
+分支），由 LLM 用友好语言告知用户失败。
 
-输入：state.user_query / state.rows / state.error
-输出：state.messages 追加一条 AIMessage（由 add_messages reducer 拼到历史）
-     **不要** 同时回写其它业务字段，避免前端重复展示。
-
-config.configurable：
-- chat_llm（同 sql_gen / chart）
+只回写 messages（追加 AIMessage），不污染其它业务字段。
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-if TYPE_CHECKING:
-    from langchain_core.runnables import RunnableConfig
+from langchain_core.messages import AIMessage
+from langchain_core.runnables import RunnableConfig
 
+if TYPE_CHECKING:
     from app.graph.state import AgentState
 
 
 async def summarize(
-    state: "AgentState", config: "RunnableConfig"
+    state: AgentState, config: RunnableConfig
 ) -> dict[str, Any]:
-    raise NotImplementedError
+    from app.llm import prompts
+    from app.llm.qwen import get_chat_llm
+
+    cfg: dict[str, Any] = config.get("configurable", {}) or {}
+    llm = cfg.get("chat_llm") or get_chat_llm()
+
+    prompt_text = prompts.render_prompt(
+        "summarize",
+        user_query=state.get("user_query", ""),
+        rows=(state.get("rows") or [])[:20],
+        error=state.get("error"),
+    )
+
+    msg = await llm.ainvoke(prompt_text)
+    content = _extract_text(msg)
+    return {"messages": [AIMessage(content=content)]}
+
+
+def _extract_text(msg: Any) -> str:
+    content = getattr(msg, "content", msg)
+    if isinstance(content, list):
+        return "".join(
+            c.get("text", "") if isinstance(c, dict) else str(c)
+            for c in content
+        )
+    return str(content)

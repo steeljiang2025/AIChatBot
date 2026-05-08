@@ -77,9 +77,47 @@ class Settings(BaseSettings):
         ),
     )
 
+    # ---- LangGraph（STE-23 起用） ----
+    graph_max_retries: int = Field(
+        default=2,
+        description=(
+            "sql_validate 失败回到 sql_gen 的最大重试次数。retries < 上限"
+            "时回 sql_gen 让 LLM 改写；达到上限走失败分支由 summarize 报错。"
+        ),
+    )
+    sql_exec_timeout_ms: int = Field(
+        default=30000,
+        description="sql_exec 节点对业务库 SQL 的 statement_timeout（毫秒）。",
+    )
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def checkpoint_db_url(self) -> str:
+        """从 meta_db_url 派生 langgraph-checkpoint-postgres 用 URL。
+
+        plan §3.7.1 (1) 必坑：
+        - 去掉 `+psycopg`（langgraph 走原生 psycopg3，不是 SQLAlchemy dialect）
+        - 加 `?options=-c%20search_path%3Dcheckpoint`，绕过 PG 15+ 起 app_user
+          在 public schema 没有 CREATE 权限的问题。
+        - 已有 query string 时丢弃（避免 ?A&B 串接出 ??）。
+        """
+        return _derive_checkpoint_url(self.meta_db_url)
+
+
+def _derive_checkpoint_url(meta_url: str) -> str:
+    """meta_db_url → langgraph 用 checkpoint URL。
+
+    输入示例：`postgresql+psycopg://app_user:pwd@host:5432/db?x=1`
+    输出示例：`postgresql://app_user:pwd@host:5432/db?options=-c%20search_path%3Dcheckpoint`
+    """
+    base = meta_url
+    if base.startswith("postgresql+psycopg://"):
+        base = "postgresql://" + base[len("postgresql+psycopg://") :]
+    base = base.split("?", 1)[0]
+    return f"{base}?options=-c%20search_path%3Dcheckpoint"
 
 
 @lru_cache(maxsize=1)

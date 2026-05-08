@@ -1,13 +1,27 @@
 import axios, { AxiosError, type AxiosInstance } from "axios";
+import { useAuthStore } from "@/store/authStore";
 
 /**
  * 全局 axios 实例：所有后端请求统一走 `/api/*`，dev 通过 vite proxy 转发。
- * Phase 3 起会在拦截器里追加 Authorization Bearer 与 401 跳登录逻辑。
+ * 请求拦截器追加 `Authorization: Bearer <access_token>`（与 FastAPI JWT 中间件一致）。
  */
 export const http: AxiosInstance = axios.create({
   baseURL: "/api",
   timeout: 15_000,
   headers: { "Content-Type": "application/json" },
+});
+
+http.interceptors.request.use((config) => {
+  const path = String(config.url ?? "");
+  if (path.includes("/auth/login") || path.includes("/auth/refresh")) {
+    delete config.headers.Authorization;
+    return config;
+  }
+  const token = useAuthStore.getState().token;
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
 });
 
 http.interceptors.response.use(

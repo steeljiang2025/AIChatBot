@@ -4,13 +4,12 @@ import dayjs from "dayjs";
 import type {
   ChatMessage,
   ChartSpec,
-  NodeName,
   NodeStatus,
   RowsPayload,
   ThinkingNode,
 } from "@/types/chat";
 
-const NODE_LABEL: Record<NodeName, string> = {
+const NODE_LABEL: Record<string, string> = {
   intent: "意图理解",
   retrieve: "语义检索",
   sql_gen: "SQL 生成",
@@ -20,6 +19,10 @@ const NODE_LABEL: Record<NodeName, string> = {
   chart: "图表推荐",
   summarize: "总结回答",
 };
+
+function labelForNode(name: string): string {
+  return NODE_LABEL[name] ?? name;
+}
 
 interface StreamHandle {
   /** 用户主动停止当前流式生成 */
@@ -43,7 +46,7 @@ interface ChatState {
   appendToken: (sessionId: string, delta: string) => void;
   setNodeStatus: (
     sessionId: string,
-    name: NodeName,
+    name: string,
     status: NodeStatus,
     detail?: string,
   ) => void;
@@ -115,7 +118,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const idx = trace.findIndex((n) => n.name === name);
         const node: ThinkingNode = {
           name,
-          label: NODE_LABEL[name],
+          label: labelForNode(name),
           status,
           detail,
         };

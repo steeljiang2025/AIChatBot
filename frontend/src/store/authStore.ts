@@ -11,8 +11,14 @@ export interface AuthUser {
 
 interface AuthState {
   token: string | null;
+  /** 与后端 refresh_token 对齐；mock 登录时为 null */
+  refreshToken: string | null;
   user: AuthUser | null;
-  setSession: (token: string, user: AuthUser) => void;
+  setSession: (
+    token: string,
+    user: AuthUser,
+    refreshToken?: string | null,
+  ) => void;
   clear: () => void;
   isAuthenticated: () => boolean;
 }
@@ -21,9 +27,11 @@ export const useAuthStore = create<AuthState>()(
   persist(
     (set, get) => ({
       token: null,
+      refreshToken: null,
       user: null,
-      setSession: (token, user) => set({ token, user }),
-      clear: () => set({ token: null, user: null }),
+      setSession: (token, user, refreshToken = null) =>
+        set({ token, user, refreshToken: refreshToken ?? null }),
+      clear: () => set({ token: null, refreshToken: null, user: null }),
       isAuthenticated: () => Boolean(get().token),
     }),
     { name: "aichatbot.auth" },

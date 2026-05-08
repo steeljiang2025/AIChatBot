@@ -22,10 +22,9 @@ import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { useChartStore } from "@/store/chartStore";
 import type { ColumnsType } from "antd/es/table";
+import type { RowCell } from "@/types/chat";
 
 const { Text } = Typography;
-
-type Cell = string | number | boolean | null;
 
 export default function ChartPanel(): JSX.Element {
   const chart = useChartStore((s) => s.chart);
@@ -34,23 +33,24 @@ export default function ChartPanel(): JSX.Element {
   const [tab, setTab] = useState<"chart" | "table" | "sql">("chart");
   const [fullscreen, setFullscreen] = useState(false);
 
-  const tableColumns: ColumnsType<Record<string, Cell>> = useMemo(() => {
+  const tableColumns: ColumnsType<Record<string, RowCell>> = useMemo(() => {
     if (!rows) return [];
     return rows.columns.map((c) => ({
       title: c,
       dataIndex: c,
       key: c,
       ellipsis: true,
-      render: (v: Cell) => formatCell(v),
+      render: (v: RowCell) => formatCell(v),
     }));
   }, [rows]);
 
+  /** 后端 rows.data 为对象数组；列顺序由 columns 决定 */
   const tableData = useMemo(() => {
     if (!rows) return [];
     return rows.data.map((row, idx) => {
-      const obj: Record<string, Cell> = { key: idx };
-      rows.columns.forEach((c, i) => {
-        obj[c] = row[i] ?? null;
+      const obj: Record<string, RowCell> = { key: idx };
+      rows.columns.forEach((c) => {
+        obj[c] = row[c] ?? null;
       });
       return obj;
     });
@@ -217,7 +217,7 @@ export default function ChartPanel(): JSX.Element {
   );
 }
 
-function formatCell(v: Cell): string {
+function formatCell(v: RowCell): string {
   if (v === null || v === undefined) return "-";
   if (typeof v === "number") {
     if (Math.abs(v) >= 1000) return v.toLocaleString();

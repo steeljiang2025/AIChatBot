@@ -1,13 +1,11 @@
 // =============================================================
 // useChatStream
 //
-// Phase 2 阶段：直接对接本地 mocks/sseServer 的事件流。
-// Phase 4 联调时改为：fetchEventSource("/api/chat/stream", { ... })。
-//
-// 设计要点：
-// - 不在 hook 中订阅会变化的 store 字段（避免每次状态变化都触发 ChatArea
-//   重渲染），所有读写都通过 store.getState() 直接访问。
-// - send/abort 用 useCallback 缓存，依赖项保持空数组。
+// VITE_USE_MOCK_SSE !== "false"：走 mocks/sseServer。
+// 否则：fetchEventSource("/api/chat/stream", ...) 与后端 STE-24 对齐：
+//   - POST body: { session_id, content }
+//   - Header: Authorization: Bearer <access_token>
+//   - SSE data 字段与 `app/services/sse.py` 一致
 // =============================================================
 
 import { useCallback } from "react";
@@ -19,13 +17,16 @@ import {
   startMockStream,
   type MockStreamHandle,
 } from "@/mocks/sseServer";
+import { buildChatStreamBody } from "@/api/chat";
+import { useAuthStore } from "@/store/authStore";
 import { useChatStore } from "@/store/chatStore";
 import { useChartStore } from "@/store/chartStore";
 import { useSessionStore } from "@/store/sessionStore";
 import type {
   ChartSpec,
-  NodeName,
   NodeStatus,
+  RowCell,
+  RowRecord,
   RowsPayload,
   SseEnvelope,
 } from "@/types/chat";
@@ -35,6 +36,31 @@ const USE_MOCK = import.meta.env.VITE_USE_MOCK_SSE !== "false";
 interface SendOptions {
   /** 远程 SSE endpoint（mock 关闭时使用） */
   endpoint?: string;
+}
+
+/** 兼容旧 mock 的「列对齐数组行」→ 与后端一致的对象行 */
+function normalizeRowsPayload(raw: unknown): RowsPayload {
+  const d = raw as { columns?: string[]; data?: unknown };
+  const columns = d.columns ?? [];
+  const rawData = d.data;
+  if (!Array.isArray(rawData) || rawData.length === 0) {
+    return { columns, data: [] };
+  }
+  const first = rawData[0];
+  if (first !== null && typeof first === "object" && !Array.isArray(first)) {
+    return { columns, data: rawData as RowRecord[] };
+  }
+  if (Array.isArray(first)) {
+    const rows = (rawData as RowCell[][]).map((row) => {
+      const obj: RowRecord = {};
+      columns.forEach((c, i) => {
+        obj[c] = row[i] ?? null;
+      });
+      return obj;
+    });
+    return { columns, data: rows };
+  }
+  return { columns, data: [] };
 }
 
 function dispatch(sessionId: string, env: SseEnvelope): void {
@@ -48,10 +74,10 @@ function dispatch(sessionId: string, env: SseEnvelope): void {
       break;
     }
     case "node": {
-      const name = data.name as NodeName;
+      const name = String(data.name ?? "");
       const status = data.status as NodeStatus;
       const detail = data.detail as string | undefined;
-      chat.setNodeStatus(sessionId, name, status, detail);
+      if (name) chat.setNodeStatus(sessionId, name, status, detail);
       break;
     }
     case "sql": {
@@ -61,7 +87,7 @@ function dispatch(sessionId: string, env: SseEnvelope): void {
       break;
     }
     case "rows": {
-      const rows = data as unknown as RowsPayload;
+      const rows = normalizeRowsPayload(data);
       chat.setRows(sessionId, rows);
       chart.setRows(rows);
       break;
@@ -126,10 +152,18 @@ export function useChatStream(): {
 
       abortController = new AbortController();
       const endpoint = opts.endpoint ?? "/api/chat/stream";
+      const token = useAuthStore.getState().token;
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      if (token) {
+        headers.Authorization = `Bearer ${token}`;
+      }
+
       fetchEventSource(endpoint, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session_id: sessionId, prompt }),
+        headers,
+        body: JSON.stringify(buildChatStreamBody(sessionId, prompt)),
         signal: abortController.signal,
         onmessage(ev: EventSourceMessage) {
           if (!ev.event) return;

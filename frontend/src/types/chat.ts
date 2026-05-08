@@ -1,13 +1,14 @@
 // =============================================================
 // 聊天 / 会话 / 流式事件领域模型
-// 与后端最终的 SSE 协议对齐（plan.md §5）：
-//   token  { delta }
-//   node   { name, status }
+//
+// SSE 与后端 `app/services/sse.py` + `chat_service` 对齐：
+//   token  { delta, node, step?, model? }
+//   node   { name, status }   // 后端目前固定 status: "ok"
 //   sql    { sql }
-//   rows   { columns, data }
+//   rows   { columns, data }  // data 为对象数组（每行键与 columns 一致）
 //   chart  { option }
 //   error  { code, message }
-//   done   { message_id }
+//   done   { message_id, ok? }
 // =============================================================
 
 import type { EChartsOption } from "echarts";
@@ -21,28 +22,25 @@ export interface ChatSession {
   updatedAt: string;
 }
 
-export type NodeName =
-  | "intent"
-  | "retrieve"
-  | "sql_gen"
-  | "sql_validate"
-  | "tenant_guard"
-  | "sql_exec"
-  | "chart"
-  | "summarize";
-
 export type NodeStatus = "pending" | "running" | "ok" | "error";
 
 export interface ThinkingNode {
-  name: NodeName;
+  /** 与后端 updates chunk 的 dict key 一致 */
+  name: string;
   label: string;
   status: NodeStatus;
   detail?: string;
 }
 
+export type RowCell = string | number | boolean | null;
+
+/** 一行记录：键为列名（与后端 SQL 行 dict 一致） */
+export type RowRecord = Record<string, RowCell>;
+
 export interface RowsPayload {
   columns: string[];
-  data: Array<Array<string | number | boolean | null>>;
+  /** 后端 `sse.translate_chunk` 推送为对象数组 */
+  data: RowRecord[];
 }
 
 export type ChartSpec = EChartsOption;
@@ -76,6 +74,43 @@ export type SseEventName =
   | "chart"
   | "error"
   | "done";
+
+/** POST /chat/stream 的 token 事件 data（与后端一致） */
+export interface SseTokenPayload {
+  delta: string;
+  node: string;
+  step?: number;
+  model?: string;
+}
+
+export interface SseNodePayload {
+  name: string;
+  status: string;
+  detail?: string;
+}
+
+export interface SseSqlPayload {
+  sql: string;
+}
+
+export interface SseRowsPayload {
+  columns: string[];
+  data: RowRecord[];
+}
+
+export interface SseChartPayload {
+  option: ChartSpec;
+}
+
+export interface SseErrorPayload {
+  code: string;
+  message: string;
+}
+
+export interface SseDonePayload {
+  message_id: string;
+  ok?: boolean;
+}
 
 export interface SseEnvelope<T = unknown> {
   event: SseEventName;

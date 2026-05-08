@@ -12,16 +12,18 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.auth import router as auth_router
 from app.api.health import router as health_router
 from app.core.config import get_settings
 from app.core.logging import setup_logging
+from app.core.middleware import JWTAuthMiddleware
 from app.db.base import biz_engine, dispose_engines, meta_engine, ping_engine
 
 _logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):  # noqa: ARG001
+async def lifespan(app: FastAPI):
     settings = get_settings()
     setup_logging(settings.app_log_level)
     _logger.info("Starting %s v%s [env=%s]", settings.app_name, settings.app_version, settings.app_env)
@@ -47,6 +49,10 @@ def create_app() -> FastAPI:
         openapi_url="/openapi.json",
     )
 
+    # 中间件加载顺序：FastAPI 按 LIFO 包装 → 后 add 的位于外层。
+    # 因此先 add JWT、再 add CORS，运行顺序是 CORS → JWT → handler，
+    # CORS preflight (OPTIONS) 由 CORSMiddleware 直接回复，不会被 JWT 拦。
+    app.add_middleware(JWTAuthMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins_list,
@@ -56,6 +62,7 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(health_router)
+    app.include_router(auth_router)
     return app
 
 

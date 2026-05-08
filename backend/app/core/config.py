@@ -57,6 +57,10 @@ class Settings(BaseSettings):
     jwt_secret: str = Field(default="change-me-to-a-long-random-string")
     jwt_algorithm: str = Field(default="HS256")
     jwt_expire_minutes: int = Field(default=120)
+    jwt_refresh_expire_days: int = Field(
+        default=14,
+        description="refresh token 有效期（天）。STE-18 起用；过期后用户需重新 /auth/login。",
+    )
 
     @property
     def cors_origins_list(self) -> list[str]:

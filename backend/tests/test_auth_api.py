@@ -22,7 +22,6 @@ from httpx import ASGITransport, AsyncClient
 
 from app.core import security
 
-
 # ---- 测试夹具：构造 dict-like 用户对象 ----
 
 

@@ -14,7 +14,6 @@ import pytest
 
 from app.core import security
 
-
 # ---- bcrypt ----
 
 

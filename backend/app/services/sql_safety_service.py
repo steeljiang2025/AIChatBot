@@ -1,4 +1,4 @@
-"""STE-22：SQL 安全编排（占位）。
+"""STE-22：SQL 安全编排。
 
 `sanitize_sql` 是对外的唯一入口，把 5 个子模块串成一条流水线：
 
@@ -8,14 +8,18 @@
       → check_forbidden_functions
       → schema_whitelist.check_table_columns
       → tenant_guard.inject_tenant_guard
-      → validator.enforce_limit
-      → 复检：sql() → parse → tenant_guard.reverify
+      → enforce_limit
+      → 复检：sql() → parse → tenant_guard.reverify_tenant_guards
 
 输出：可直接被 sql_exec 执行的 SQL 字符串（含 `:tid` 占位符），
 调用方负责 `bind(tid=tenant_id)` 注入实际 UUID。
 """
 
 from __future__ import annotations
+
+from app.sql_safety import schema_whitelist, tenant_guard, validator
+
+_DIALECT = "postgres"
 
 
 def sanitize_sql(
@@ -39,6 +43,26 @@ def sanitize_sql(
         可执行的 PG SQL，含 `:tid` 占位符。
 
     Raises:
-        SqlSafetyError 子类之一。
+        SqlSafetyError 子类。
     """
-    raise NotImplementedError
+    ast = validator.parse_safe(sql)
+    validator.validate_select_only(ast)
+    validator.check_system_schemas(ast)
+    validator.check_forbidden_functions(ast)
+
+    schema_whitelist.check_table_columns(
+        ast,
+        known_tables=known_tables,
+        known_columns=known_columns,
+    )
+
+    ast = tenant_guard.inject_tenant_guard(
+        ast, tenant_scoped_tables=tenant_scoped_tables
+    )
+    ast = validator.enforce_limit(ast, max_rows=max_rows)
+
+    tenant_guard.reverify_tenant_guards(
+        ast, tenant_scoped_tables=tenant_scoped_tables
+    )
+
+    return ast.sql(dialect=_DIALECT)

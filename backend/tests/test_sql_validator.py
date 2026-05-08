@@ -17,9 +17,8 @@ from app.sql_safety import (
     MultiStatementError,
     SqlSyntaxError,
     SystemSchemaError,
+    validator,
 )
-from app.sql_safety import validator
-
 
 # ---- parse_safe ----
 

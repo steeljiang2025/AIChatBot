@@ -9,8 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.sql_safety import UnregisteredTableError, schema_whitelist
-from app.sql_safety import validator
+from app.sql_safety import UnregisteredTableError, schema_whitelist, validator
 
 
 @pytest.fixture()

@@ -1,23 +1,32 @@
-"""STE-22：schema 白名单检查（占位）。
+"""STE-22：schema 白名单检查。
 
-策略（用户决策：未登记表/列 → 直接拒绝）：
-- 接受一份「已登记表」(schema, table) 集合 + 「已登记列」(schema, table) → set[col] 的映射。
-- 遍历 AST 中所有 Table / Column，校验：
-  - Table 的 `(db or 'public', name)` 必须在 known_tables。
-  - Column 的 `name` 必须在某个已知表的列集合内（宽松版：不依赖 qualify）。
-
-注：完全严格的列归属判断依赖 `sqlglot.optimizer.qualify_columns`，
-该步骤集成留给 STE-23 SQL 生成节点完成（届时已知执行计划）。
-本模块的列检查只做「列名至少是某个登记表的列」的宽松校验，
-足以防御「LLM 幻觉出 `secret_field` 这类完全虚构列」。
+策略（用户决策：未登记表/列直接拒绝）：
+- 表：`(schema or 'public', name)` 必须在 known_tables 内（小写）。
+  CTE 别名通过「`SELECT` 节点的 `with` 字段中声明的 alias 集」豁免。
+- 列：宽松版列名级检查 — 只要列名出现在「所有登记表的列集合并集 + CTE 列集合」内即放行。
+  完全严格的列归属判断需要 `sqlglot.optimizer.qualify_columns`，留给 STE-23 集成。
+- `*`（star）不被视为列引用，跳过。
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from sqlglot import expressions as exp
 
-if TYPE_CHECKING:
-    import sqlglot.expressions as exp
+from app.sql_safety.errors import UnregisteredTableError
+
+
+def _collect_cte_aliases(ast: exp.Expression) -> set[str]:
+    """收集所有 CTE 别名（小写）。
+
+    sqlglot 会把 `WITH a AS (...), b AS (...) SELECT ...` 中的 a/b
+    作为 `Select.args['with'].expressions` 中的 CTE 节点。
+    """
+    aliases: set[str] = set()
+    for cte in ast.find_all(exp.CTE):
+        alias = cte.alias_or_name
+        if alias:
+            aliases.add(alias.lower())
+    return aliases
 
 
 def check_table_columns(
@@ -28,13 +37,40 @@ def check_table_columns(
 ) -> None:
     """白名单校验。
 
-    Args:
-        ast: 已通过 validator 的 AST。
-        known_tables: `{(schema_lower, table_lower), ...}`，所有登记的业务表。
-        known_columns: `{(schema_lower, table_lower): {col_lower, ...}}`，
-            供宽松列检查使用。
-
     Raises:
-        UnregisteredTableError: 引用了未登记的表 / 列。
+        UnregisteredTableError: 任何引用了未登记的表 / 列。
     """
-    raise NotImplementedError
+    cte_aliases = _collect_cte_aliases(ast)
+
+    # 1) 表
+    for table in ast.find_all(exp.Table):
+        schema = (table.db or "public").lower()
+        name = (table.name or "").lower()
+        if not name:
+            continue
+        # CTE 别名（仅当未指定 schema 时）
+        if not table.db and name in cte_aliases:
+            continue
+        if (schema, name) not in known_tables:
+            raise UnregisteredTableError(
+                f"Table not registered: {schema}.{name}"
+            )
+
+    # 2) 列（宽松：列名出现在已登记列集并集即可）
+    all_known_cols: set[str] = set()
+    for cols in known_columns.values():
+        all_known_cols.update(c.lower() for c in cols)
+
+    for col in ast.find_all(exp.Column):
+        col_name = (col.name or "").lower()
+        if not col_name or col_name == "*":
+            continue
+        # 仅当该列没限定到 CTE alias 时才检查；CTE 内部列由 CTE 内的 select 自身递归校验
+        if col.table:
+            t_alias = col.table.lower()
+            if t_alias in cte_aliases:
+                continue
+        if col_name not in all_known_cols:
+            raise UnregisteredTableError(
+                f"Column not registered: {col_name}"
+            )

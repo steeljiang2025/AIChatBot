@@ -66,3 +66,6 @@ Thumbs.db
 infra/postgres/data/
 *.sqlite
 *.db
+
+# ===== STE-20: probe 脚本（含真实 API key，不入仓） =====
+backend/scripts/probe_llm.py

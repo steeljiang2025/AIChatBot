@@ -27,7 +27,10 @@ dependencies = [
 
     # —— Phase3 鉴权与安全 ——
     "python-jose[cryptography]>=3.3",
-    "passlib[bcrypt]>=1.7.4",
+    # 直接用 raw bcrypt：passlib 1.7.x 与 bcrypt 4.x+ 已不兼容
+    # （passlib 探测 backend 时会被 72 字节限制抛 ValueError 卡死），
+    # 行业（含 FastAPI 官方教程）已迁离 passlib。
+    "bcrypt>=4.1",
     "python-multipart>=0.0.20",
 
     # —— Phase3 迁移与向量 ——

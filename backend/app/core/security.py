@@ -1,32 +1,58 @@
-"""STE-18：JWT + bcrypt 安全工具（占位）。
+"""STE-18：JWT + bcrypt 安全工具。
 
-本提交（commit 1）只暴露符号让测试 import 不爆，所有函数主体抛
-`NotImplementedError`，由 commit 2 落地真实逻辑。
-
-约定：
-- access / refresh token 都用 HS256；claims 至少含 sub/tenant_id/type/iat/exp。
-- 鉴权失败统一抛 `InvalidTokenError`，由上层路由 / 中间件转 401，
-  避免泄漏「过期 vs 篡改 vs 类型不符」等可被探测的差异。
+- access / refresh token 都用 HS256，密钥取自 `settings.jwt_secret`。
+- claims 至少含 `sub`（user_id）/ `tenant_id` / `type`（access | refresh）/ `iat` / `exp`。
+  access 额外带 `roles`；refresh 不带角色，刷新时再从用户表取。
+- 鉴权失败统一抛 `InvalidTokenError`，由上层转 401，
+  避免泄漏「过期 vs 篡改 vs 类型不符」差异给攻击者。
 """
 
 from __future__ import annotations
 
-from datetime import timedelta
-from typing import Any
+from datetime import datetime, timedelta, timezone
+from typing import Any, Final
+
+import bcrypt
+from jose import JWTError, jwt
+
+from app.core.config import get_settings
+
+# bcrypt 协议本身限制密码 ≤ 72 字节（超出部分被算法忽略）；
+# 新版 bcrypt 4.x/5.x 不再静默截断而是直接抛 ValueError，所以我们在应用层
+# 显式截断到 72 字节——这是 OWASP 推荐的做法，避免长密码登录失败。
+# 历史背景：早期方案曾用 passlib[bcrypt]，但 passlib 1.7.x 与 bcrypt 4.x+
+# 在 backend 探测阶段就会因这个限制崩，社区已迁移到 raw bcrypt / pwdlib。
+_BCRYPT_MAX_BYTES: Final[int] = 72
 
 
 class InvalidTokenError(Exception):
     """token 缺失 / 过期 / 签名错 / 类型不符等情况的统一异常。"""
 
 
+# ---- 密码 ----
+
+
+def _normalize_password(password: str) -> bytes:
+    return password.encode("utf-8")[:_BCRYPT_MAX_BYTES]
+
+
 def hash_password(password: str) -> str:
-    """对明文密码做 bcrypt 哈希。"""
-    raise NotImplementedError
+    return bcrypt.hashpw(_normalize_password(password), bcrypt.gensalt()).decode("utf-8")
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    """校验明文密码与 bcrypt 哈希是否匹配。"""
-    raise NotImplementedError
+    try:
+        return bcrypt.checkpw(_normalize_password(plain), hashed.encode("utf-8"))
+    except (ValueError, TypeError):
+        # hash 字符串格式非法时 bcrypt 会抛 ValueError，统一兜成 False，避免 500
+        return False
+
+
+# ---- JWT ----
+
+
+def _now_utc() -> datetime:
+    return datetime.now(tz=timezone.utc)
 
 
 def create_access_token(
@@ -36,8 +62,22 @@ def create_access_token(
     roles: list[str],
     expires_delta: timedelta | None = None,
 ) -> str:
-    """签发 access token；`expires_delta` 主要给测试构造过期 token。"""
-    raise NotImplementedError
+    settings = get_settings()
+    iat = _now_utc()
+    exp = iat + (
+        expires_delta
+        if expires_delta is not None
+        else timedelta(minutes=settings.jwt_expire_minutes)
+    )
+    claims: dict[str, Any] = {
+        "sub": user_id,
+        "tenant_id": tenant_id,
+        "roles": list(roles),
+        "type": "access",
+        "iat": int(iat.timestamp()),
+        "exp": int(exp.timestamp()),
+    }
+    return jwt.encode(claims, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 
 def create_refresh_token(
@@ -46,10 +86,35 @@ def create_refresh_token(
     tenant_id: str,
     expires_delta: timedelta | None = None,
 ) -> str:
-    """签发 refresh token（不带 roles，刷新时再从用户表取）。"""
-    raise NotImplementedError
+    settings = get_settings()
+    iat = _now_utc()
+    exp = iat + (
+        expires_delta
+        if expires_delta is not None
+        else timedelta(days=settings.jwt_refresh_expire_days)
+    )
+    claims: dict[str, Any] = {
+        "sub": user_id,
+        "tenant_id": tenant_id,
+        "type": "refresh",
+        "iat": int(iat.timestamp()),
+        "exp": int(exp.timestamp()),
+    }
+    return jwt.encode(claims, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 
 def decode_token(token: str, *, expected_type: str) -> dict[str, Any]:
-    """解码并校验 token；`expected_type` 限定 access/refresh，错类型一律拒绝。"""
-    raise NotImplementedError
+    if not token:
+        raise InvalidTokenError("empty token")
+    settings = get_settings()
+    try:
+        claims: dict[str, Any] = jwt.decode(
+            token,
+            settings.jwt_secret,
+            algorithms=[settings.jwt_algorithm],
+        )
+    except JWTError as exc:
+        raise InvalidTokenError(str(exc)) from exc
+    if claims.get("type") != expected_type:
+        raise InvalidTokenError("token type mismatch")
+    return claims

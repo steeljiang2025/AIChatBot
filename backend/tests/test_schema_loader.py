@@ -18,7 +18,6 @@ import pytest
 
 from app.semantic import schema_loader
 
-
 # 7 元组：(schema, table, table_type, column, data_type, is_nullable, default)
 _FAKE_ROWS: list[tuple[str, str, str, str, str, bool, str | None]] = [
     ("public", "orders", "BASE TABLE", "id", "uuid", False, None),

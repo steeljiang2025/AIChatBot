@@ -1,16 +1,11 @@
-"""STE-21：语义层 ORM 数据访问（占位）。
+"""STE-21：语义层 ORM 数据访问。
 
 设计：
-- 4 类资源（tables / columns / terms / relations）共用一个 repo 文件，
-  避免 4 个微小文件管理负担。
-- 每个资源只暴露最小的 CRUD：list / get / create / update / delete。
-- 所有查询强制按 `tenant_id` 过滤，与 STE-19 sessions_repo 同模式。
-- 越权访问（资源属于别的 tenant）一律返回 None / False，由 service 层
-  转 404 让 API 不暴露存在性。
-- update 用 `changes: dict[str, Any]` 部分更新风格：只覆盖 dict 里出现的
-  属性，避免 sentinel 类型注解的复杂度。
-
-实现见 commit 2。
+- 4 类资源（tables / columns / terms / relations）共用一个 repo 文件。
+- 每个资源最小 CRUD：list / get / create / update / delete。
+- 所有查询强制按 `tenant_id` 过滤；越权（资源属于别 tenant）一律返回 None /
+  False，由 service 层转 404。
+- update 用 `changes: dict[str, Any]` 部分更新风格：只覆盖 dict 里出现的属性。
 """
 
 from __future__ import annotations
@@ -18,15 +13,17 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING, Any
 
+from sqlalchemy import func, select
+
+from app.db.models import (
+    SemanticColumn,
+    SemanticRelation,
+    SemanticTable,
+    SemanticTerm,
+)
+
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
-
-    from app.db.models import (
-        SemanticColumn,
-        SemanticRelation,
-        SemanticTable,
-        SemanticTerm,
-    )
 
 
 # ============ SemanticTable ============
@@ -39,7 +36,15 @@ async def list_tables(
     limit: int,
     offset: int,
 ) -> tuple[list[SemanticTable], int]:
-    raise NotImplementedError
+    base = select(SemanticTable).where(SemanticTable.tenant_id == tenant_id)
+    total = (
+        await session.execute(select(func.count()).select_from(base.subquery()))
+    ).scalar_one()
+    items_stmt = (
+        base.order_by(SemanticTable.updated_at.desc()).limit(limit).offset(offset)
+    )
+    res = await session.execute(items_stmt)
+    return list(res.scalars().all()), int(total)
 
 
 async def get_table(
@@ -48,7 +53,11 @@ async def get_table(
     table_id: uuid.UUID,
     tenant_id: uuid.UUID,
 ) -> SemanticTable | None:
-    raise NotImplementedError
+    stmt = select(SemanticTable).where(
+        SemanticTable.id == table_id, SemanticTable.tenant_id == tenant_id
+    )
+    res = await session.execute(stmt)
+    return res.scalar_one_or_none()
 
 
 async def create_table(
@@ -61,7 +70,21 @@ async def create_table(
     description: str | None,
     tags: dict[str, Any] | None,
 ) -> SemanticTable:
-    raise NotImplementedError
+    obj = SemanticTable(
+        tenant_id=tenant_id,
+        schema_name=schema_name,
+        table_name=table_name,
+        display_name=display_name,
+        description=description,
+        tags=tags,
+    )
+    session.add(obj)
+    await session.commit()
+    await session.refresh(obj)
+    return obj
+
+
+_TABLE_PATCHABLE: frozenset[str] = frozenset({"display_name", "description", "tags"})
 
 
 async def update_table(
@@ -70,14 +93,17 @@ async def update_table(
     obj: SemanticTable,
     changes: dict[str, Any],
 ) -> SemanticTable:
-    """部分更新。`changes` 中允许的 key：
-    `display_name` / `description` / `tags`。其它 key 应被上层拒绝。
-    """
-    raise NotImplementedError
+    for k, v in changes.items():
+        if k in _TABLE_PATCHABLE:
+            setattr(obj, k, v)
+    await session.commit()
+    await session.refresh(obj)
+    return obj
 
 
 async def delete_table(session: AsyncSession, *, obj: SemanticTable) -> None:
-    raise NotImplementedError
+    await session.delete(obj)
+    await session.commit()
 
 
 # ============ SemanticColumn ============
@@ -89,7 +115,16 @@ async def list_columns_of_table(
     table_id: uuid.UUID,
     tenant_id: uuid.UUID,
 ) -> list[SemanticColumn]:
-    raise NotImplementedError
+    stmt = (
+        select(SemanticColumn)
+        .where(
+            SemanticColumn.table_id == table_id,
+            SemanticColumn.tenant_id == tenant_id,
+        )
+        .order_by(SemanticColumn.created_at.asc())
+    )
+    res = await session.execute(stmt)
+    return list(res.scalars().all())
 
 
 async def get_column(
@@ -98,7 +133,11 @@ async def get_column(
     column_id: uuid.UUID,
     tenant_id: uuid.UUID,
 ) -> SemanticColumn | None:
-    raise NotImplementedError
+    stmt = select(SemanticColumn).where(
+        SemanticColumn.id == column_id, SemanticColumn.tenant_id == tenant_id
+    )
+    res = await session.execute(stmt)
+    return res.scalar_one_or_none()
 
 
 async def create_column(
@@ -113,7 +152,25 @@ async def create_column(
     business_meaning: str | None,
     is_pii: bool,
 ) -> SemanticColumn:
-    raise NotImplementedError
+    obj = SemanticColumn(
+        tenant_id=tenant_id,
+        table_id=table_id,
+        column_name=column_name,
+        data_type=data_type,
+        display_name=display_name,
+        description=description,
+        business_meaning=business_meaning,
+        is_pii=is_pii,
+    )
+    session.add(obj)
+    await session.commit()
+    await session.refresh(obj)
+    return obj
+
+
+_COLUMN_PATCHABLE: frozenset[str] = frozenset(
+    {"display_name", "description", "business_meaning", "is_pii"}
+)
 
 
 async def update_column(
@@ -122,14 +179,17 @@ async def update_column(
     obj: SemanticColumn,
     changes: dict[str, Any],
 ) -> SemanticColumn:
-    """部分更新。`changes` 允许的 key：
-    `display_name` / `description` / `business_meaning` / `is_pii`。
-    """
-    raise NotImplementedError
+    for k, v in changes.items():
+        if k in _COLUMN_PATCHABLE:
+            setattr(obj, k, v)
+    await session.commit()
+    await session.refresh(obj)
+    return obj
 
 
 async def delete_column(session: AsyncSession, *, obj: SemanticColumn) -> None:
-    raise NotImplementedError
+    await session.delete(obj)
+    await session.commit()
 
 
 # ============ SemanticTerm ============
@@ -142,7 +202,15 @@ async def list_terms(
     limit: int,
     offset: int,
 ) -> tuple[list[SemanticTerm], int]:
-    raise NotImplementedError
+    base = select(SemanticTerm).where(SemanticTerm.tenant_id == tenant_id)
+    total = (
+        await session.execute(select(func.count()).select_from(base.subquery()))
+    ).scalar_one()
+    items_stmt = (
+        base.order_by(SemanticTerm.updated_at.desc()).limit(limit).offset(offset)
+    )
+    res = await session.execute(items_stmt)
+    return list(res.scalars().all()), int(total)
 
 
 async def get_term(
@@ -151,7 +219,11 @@ async def get_term(
     term_id: uuid.UUID,
     tenant_id: uuid.UUID,
 ) -> SemanticTerm | None:
-    raise NotImplementedError
+    stmt = select(SemanticTerm).where(
+        SemanticTerm.id == term_id, SemanticTerm.tenant_id == tenant_id
+    )
+    res = await session.execute(stmt)
+    return res.scalar_one_or_none()
 
 
 async def create_term(
@@ -163,7 +235,20 @@ async def create_term(
     synonyms: dict[str, Any] | None,
     related_refs: dict[str, Any] | None,
 ) -> SemanticTerm:
-    raise NotImplementedError
+    obj = SemanticTerm(
+        tenant_id=tenant_id,
+        term=term,
+        definition=definition,
+        synonyms=synonyms,
+        related_refs=related_refs,
+    )
+    session.add(obj)
+    await session.commit()
+    await session.refresh(obj)
+    return obj
+
+
+_TERM_PATCHABLE: frozenset[str] = frozenset({"definition", "synonyms", "related_refs"})
 
 
 async def update_term(
@@ -172,14 +257,17 @@ async def update_term(
     obj: SemanticTerm,
     changes: dict[str, Any],
 ) -> SemanticTerm:
-    """部分更新。`changes` 允许的 key：
-    `definition` / `synonyms` / `related_refs`。
-    """
-    raise NotImplementedError
+    for k, v in changes.items():
+        if k in _TERM_PATCHABLE:
+            setattr(obj, k, v)
+    await session.commit()
+    await session.refresh(obj)
+    return obj
 
 
 async def delete_term(session: AsyncSession, *, obj: SemanticTerm) -> None:
-    raise NotImplementedError
+    await session.delete(obj)
+    await session.commit()
 
 
 # ============ SemanticRelation ============
@@ -192,7 +280,15 @@ async def list_relations(
     limit: int,
     offset: int,
 ) -> tuple[list[SemanticRelation], int]:
-    raise NotImplementedError
+    base = select(SemanticRelation).where(SemanticRelation.tenant_id == tenant_id)
+    total = (
+        await session.execute(select(func.count()).select_from(base.subquery()))
+    ).scalar_one()
+    items_stmt = (
+        base.order_by(SemanticRelation.updated_at.desc()).limit(limit).offset(offset)
+    )
+    res = await session.execute(items_stmt)
+    return list(res.scalars().all()), int(total)
 
 
 async def get_relation(
@@ -201,7 +297,12 @@ async def get_relation(
     relation_id: uuid.UUID,
     tenant_id: uuid.UUID,
 ) -> SemanticRelation | None:
-    raise NotImplementedError
+    stmt = select(SemanticRelation).where(
+        SemanticRelation.id == relation_id,
+        SemanticRelation.tenant_id == tenant_id,
+    )
+    res = await session.execute(stmt)
+    return res.scalar_one_or_none()
 
 
 async def create_relation(
@@ -215,7 +316,22 @@ async def create_relation(
     to_column_id: uuid.UUID | None,
     description: str | None,
 ) -> SemanticRelation:
-    raise NotImplementedError
+    obj = SemanticRelation(
+        tenant_id=tenant_id,
+        from_table_id=from_table_id,
+        to_table_id=to_table_id,
+        from_column_id=from_column_id,
+        to_column_id=to_column_id,
+        relation_type=relation_type,
+        description=description,
+    )
+    session.add(obj)
+    await session.commit()
+    await session.refresh(obj)
+    return obj
+
+
+_RELATION_PATCHABLE: frozenset[str] = frozenset({"description"})
 
 
 async def update_relation(
@@ -224,9 +340,14 @@ async def update_relation(
     obj: SemanticRelation,
     changes: dict[str, Any],
 ) -> SemanticRelation:
-    """部分更新。`changes` 允许的 key：`description`。"""
-    raise NotImplementedError
+    for k, v in changes.items():
+        if k in _RELATION_PATCHABLE:
+            setattr(obj, k, v)
+    await session.commit()
+    await session.refresh(obj)
+    return obj
 
 
 async def delete_relation(session: AsyncSession, *, obj: SemanticRelation) -> None:
-    raise NotImplementedError
+    await session.delete(obj)
+    await session.commit()

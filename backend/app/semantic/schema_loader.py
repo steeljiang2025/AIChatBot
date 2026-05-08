@@ -1,21 +1,22 @@
-"""STE-21：业务库 schema 抽取（占位）。
+"""STE-21：业务库 schema 抽取。
 
-设计要点（实现见 commit 2）：
+设计要点：
 - 接受任意 `AsyncEngine`（用户决策：function-level engine 注入），
   使得未来加业务库时只需在调用方传入新 engine，本模块不感知。
-- 默认从 `information_schema.tables` + `information_schema.columns` 抽，
+- 从 `information_schema.tables` LEFT JOIN `information_schema.columns` 抽，
   跳过系统 schema（pg_*, information_schema）+ 我们的内部 schema
   （meta / rag / checkpoint）。
-
-返回值仅是「发现到的字面信息」，不直接入库——是否登记到 SemanticTable
-由上层 API 决定（典型流程：调 `/semantics/discover` → 用户在 UI 上勾选
-要登记的表 → 调 `/semantics/tables` 创建）。
+- 返回值仅是「发现到的字面信息」，不直接入库——是否登记到 SemanticTable
+  由上层 API 决定（典型流程：调 `/semantics/discover` → 用户在 UI 上勾选
+  要登记的表 → 调 `/semantics/tables` 创建）。
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
+
+from sqlalchemy import text
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine
@@ -58,16 +59,66 @@ _INTERNAL_SCHEMAS: frozenset[str] = frozenset(
 _FetchedRow = tuple[str, str, str, str, str, bool, str | None]
 
 
+# information_schema 抽取 SQL：JOIN tables × columns，只取 BASE TABLE 时
+# 在 SQL 层加 t.table_type 过滤；include_schemas=None 时 SQL 里只过滤
+# 内部 schema 黑名单。
+# `:internal_schemas` 用 expanding bind 传 tuple，psycopg / asyncpg 都支持。
+_BASE_SQL = """
+SELECT
+    t.table_schema,
+    t.table_name,
+    t.table_type,
+    c.column_name,
+    c.data_type,
+    c.is_nullable,
+    c.column_default
+FROM information_schema.tables AS t
+JOIN information_schema.columns AS c
+  ON c.table_schema = t.table_schema
+ AND c.table_name   = t.table_name
+WHERE t.table_schema NOT IN :internal_schemas
+"""
+
+
 async def _fetch_information_schema_rows(
     engine: AsyncEngine,
     *,
     include_schemas: list[str] | None,
     include_views: bool,
 ) -> list[_FetchedRow]:
-    """从 `information_schema.tables` × `information_schema.columns` LEFT JOIN
-    抽取行。SQL 在 commit 2 实现；本占位让 monkeypatch 能在测试里替换它。
-    """
-    raise NotImplementedError
+    """对接 PG 的 `information_schema`，按 `(schema, table, ordinal_position)` 排序返回行。"""
+    from sqlalchemy import bindparam
+
+    sql = _BASE_SQL
+    params: dict[str, Any] = {"internal_schemas": tuple(_INTERNAL_SCHEMAS)}
+    if not include_views:
+        sql += "  AND t.table_type = 'BASE TABLE'\n"
+    if include_schemas is not None:
+        sql += "  AND t.table_schema IN :included\n"
+        params["included"] = tuple(include_schemas)
+    sql += "ORDER BY t.table_schema, t.table_name, c.ordinal_position\n"
+
+    bind_specs = [bindparam("internal_schemas", expanding=True)]
+    if include_schemas is not None:
+        bind_specs.append(bindparam("included", expanding=True))
+    stmt = text(sql).bindparams(*bind_specs)
+
+    async with engine.connect() as conn:
+        result = await conn.execute(stmt, params)
+        rows = result.all()
+
+    return [
+        (
+            r[0],
+            r[1],
+            r[2],
+            r[3],
+            r[4],
+            (r[5] == "YES") if isinstance(r[5], str) else bool(r[5]),
+            r[6],
+        )
+        for r in rows
+    ]
 
 
 async def load_schema(
@@ -78,14 +129,43 @@ async def load_schema(
 ) -> list[TableInfo]:
     """从给定 engine 上抽取业务库 schema。
 
-    Args:
-        engine: 业务库的 `AsyncEngine`。本模块不创建 engine，
-            由调用方负责生命周期。
-        include_schemas: 仅抽取这些 schema；None 表示「除 `_INTERNAL_SCHEMAS` 之外
-            所有非系统 schema」。
-        include_views: 是否包含 VIEW / MATERIALIZED VIEW，默认 False。
-
-    Returns:
-        发现到的 `TableInfo` 列表，按 (schema_name, table_name) 字典序。
+    聚合策略：
+    1. 调 `_fetch_information_schema_rows` 拿 7 元组行（已按 SQL 层过滤）。
+    2. 在 Python 兜底再过滤一次内部 schema（防御性，避免实现 bug）。
+    3. 若 `include_views=False`，只保留 `table_type == "BASE TABLE"`。
+    4. 按 `(schema_name, table_name)` 分组，每组的列按 SQL 层 `ordinal_position` 已排好序。
+    5. 输出按 `(schema_name, table_name)` 字典序。
     """
-    raise NotImplementedError
+    rows = await _fetch_information_schema_rows(
+        engine,
+        include_schemas=include_schemas,
+        include_views=include_views,
+    )
+
+    grouped: dict[tuple[str, str], dict[str, Any]] = {}
+    for schema, table, table_type, col, dt, nullable, default in rows:
+        if schema in _INTERNAL_SCHEMAS:
+            continue
+        if not include_views and table_type != "BASE TABLE":
+            continue
+        key = (schema, table)
+        if key not in grouped:
+            grouped[key] = {"table_type": table_type, "cols": []}
+        grouped[key]["cols"].append(
+            ColumnInfo(
+                column_name=col,
+                data_type=dt,
+                is_nullable=nullable,
+                column_default=default,
+            )
+        )
+
+    return [
+        TableInfo(
+            schema_name=k[0],
+            table_name=k[1],
+            table_type=v["table_type"],
+            columns=tuple(v["cols"]),
+        )
+        for k, v in sorted(grouped.items())
+    ]

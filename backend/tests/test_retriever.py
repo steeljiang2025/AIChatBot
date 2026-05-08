@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import uuid
+from itertools import pairwise
 from typing import Any
 
 import pytest
@@ -128,7 +129,7 @@ async def test_search_returns_top_k_descending(patched_run_query) -> None:
     )
     assert len(hits) == 5
     # score 严格递减
-    for a, b in zip(hits, hits[1:]):
+    for a, b in pairwise(hits):
         assert a.score >= b.score
 
 

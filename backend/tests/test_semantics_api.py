@@ -28,7 +28,6 @@ from httpx import ASGITransport, AsyncClient
 
 from app.core import security
 
-
 # ---- 测试身份 ----
 
 
@@ -450,7 +449,11 @@ def auth_app(monkeypatch: pytest.MonkeyPatch, store: _SemStore) -> Any:
 
     from app.main import create_app
 
-    return create_app()
+    app = create_app()
+    # discover 端点强校 app.state.business_engine 不为 None；测试不连真实业务库，
+    # 只塞一个 sentinel 让契约能跑通（mock 后的 service 不读这个值）。
+    app.state.business_engine = object()
+    return app
 
 
 @pytest.fixture()

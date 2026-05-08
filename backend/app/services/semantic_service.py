@@ -1,8 +1,9 @@
-"""STE-21：语义层业务编排（占位）。
+"""STE-21：语义层业务编排。
 
 职责：
-- 把 repo 层的越权访问（None / False）转译为 404 信号。
-- 提供 `discover` / `reindex` / `search` 三个高层操作（实现见 commit 2）。
+- 把 repo 层的越权访问（None / False）转译为 service 层的 None / False，
+  由 API 层统一映射成 404。
+- 提供 `discover_business_schema` / `reindex` / `hybrid_search` 三个高层操作。
 
 约束：
 - 所有方法都接收明确的 `tenant_id`，不依赖 ContextVar 隐式传递。
@@ -13,6 +14,9 @@ from __future__ import annotations
 
 import uuid
 from typing import TYPE_CHECKING, Any
+
+from app.semantic import indexer, retriever, schema_loader
+from app.services import semantic_repo
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
@@ -38,7 +42,9 @@ async def list_tables(
     limit: int,
     offset: int,
 ) -> tuple[list[SemanticTable], int]:
-    raise NotImplementedError
+    return await semantic_repo.list_tables(
+        session, tenant_id=tenant_id, limit=limit, offset=offset
+    )
 
 
 async def get_table(
@@ -47,7 +53,9 @@ async def get_table(
     table_id: uuid.UUID,
     tenant_id: uuid.UUID,
 ) -> SemanticTable | None:
-    raise NotImplementedError
+    return await semantic_repo.get_table(
+        session, table_id=table_id, tenant_id=tenant_id
+    )
 
 
 async def create_table(
@@ -60,7 +68,15 @@ async def create_table(
     description: str | None,
     tags: dict[str, Any] | None,
 ) -> SemanticTable:
-    raise NotImplementedError
+    return await semantic_repo.create_table(
+        session,
+        tenant_id=tenant_id,
+        schema_name=schema_name,
+        table_name=table_name,
+        display_name=display_name,
+        description=description,
+        tags=tags,
+    )
 
 
 async def patch_table(
@@ -70,7 +86,12 @@ async def patch_table(
     tenant_id: uuid.UUID,
     changes: dict[str, Any],
 ) -> SemanticTable | None:
-    raise NotImplementedError
+    obj = await semantic_repo.get_table(
+        session, table_id=table_id, tenant_id=tenant_id
+    )
+    if obj is None:
+        return None
+    return await semantic_repo.update_table(session, obj=obj, changes=changes)
 
 
 async def remove_table(
@@ -79,7 +100,13 @@ async def remove_table(
     table_id: uuid.UUID,
     tenant_id: uuid.UUID,
 ) -> bool:
-    raise NotImplementedError
+    obj = await semantic_repo.get_table(
+        session, table_id=table_id, tenant_id=tenant_id
+    )
+    if obj is None:
+        return False
+    await semantic_repo.delete_table(session, obj=obj)
+    return True
 
 
 # ============ columns ============
@@ -91,8 +118,14 @@ async def list_columns(
     table_id: uuid.UUID,
     tenant_id: uuid.UUID,
 ) -> list[SemanticColumn] | None:
-    """父表不存在 / 越权返回 None。"""
-    raise NotImplementedError
+    parent = await semantic_repo.get_table(
+        session, table_id=table_id, tenant_id=tenant_id
+    )
+    if parent is None:
+        return None
+    return await semantic_repo.list_columns_of_table(
+        session, table_id=table_id, tenant_id=tenant_id
+    )
 
 
 async def create_column(
@@ -107,8 +140,22 @@ async def create_column(
     business_meaning: str | None,
     is_pii: bool,
 ) -> SemanticColumn | None:
-    """父表不存在 / 越权返回 None。"""
-    raise NotImplementedError
+    parent = await semantic_repo.get_table(
+        session, table_id=table_id, tenant_id=tenant_id
+    )
+    if parent is None:
+        return None
+    return await semantic_repo.create_column(
+        session,
+        tenant_id=tenant_id,
+        table_id=table_id,
+        column_name=column_name,
+        data_type=data_type,
+        display_name=display_name,
+        description=description,
+        business_meaning=business_meaning,
+        is_pii=is_pii,
+    )
 
 
 async def patch_column(
@@ -118,7 +165,12 @@ async def patch_column(
     tenant_id: uuid.UUID,
     changes: dict[str, Any],
 ) -> SemanticColumn | None:
-    raise NotImplementedError
+    obj = await semantic_repo.get_column(
+        session, column_id=column_id, tenant_id=tenant_id
+    )
+    if obj is None:
+        return None
+    return await semantic_repo.update_column(session, obj=obj, changes=changes)
 
 
 async def remove_column(
@@ -127,7 +179,13 @@ async def remove_column(
     column_id: uuid.UUID,
     tenant_id: uuid.UUID,
 ) -> bool:
-    raise NotImplementedError
+    obj = await semantic_repo.get_column(
+        session, column_id=column_id, tenant_id=tenant_id
+    )
+    if obj is None:
+        return False
+    await semantic_repo.delete_column(session, obj=obj)
+    return True
 
 
 # ============ terms ============
@@ -140,7 +198,9 @@ async def list_terms(
     limit: int,
     offset: int,
 ) -> tuple[list[SemanticTerm], int]:
-    raise NotImplementedError
+    return await semantic_repo.list_terms(
+        session, tenant_id=tenant_id, limit=limit, offset=offset
+    )
 
 
 async def get_term(
@@ -149,7 +209,9 @@ async def get_term(
     term_id: uuid.UUID,
     tenant_id: uuid.UUID,
 ) -> SemanticTerm | None:
-    raise NotImplementedError
+    return await semantic_repo.get_term(
+        session, term_id=term_id, tenant_id=tenant_id
+    )
 
 
 async def create_term(
@@ -161,7 +223,14 @@ async def create_term(
     synonyms: dict[str, Any] | None,
     related_refs: dict[str, Any] | None,
 ) -> SemanticTerm:
-    raise NotImplementedError
+    return await semantic_repo.create_term(
+        session,
+        tenant_id=tenant_id,
+        term=term,
+        definition=definition,
+        synonyms=synonyms,
+        related_refs=related_refs,
+    )
 
 
 async def patch_term(
@@ -171,7 +240,12 @@ async def patch_term(
     tenant_id: uuid.UUID,
     changes: dict[str, Any],
 ) -> SemanticTerm | None:
-    raise NotImplementedError
+    obj = await semantic_repo.get_term(
+        session, term_id=term_id, tenant_id=tenant_id
+    )
+    if obj is None:
+        return None
+    return await semantic_repo.update_term(session, obj=obj, changes=changes)
 
 
 async def remove_term(
@@ -180,7 +254,13 @@ async def remove_term(
     term_id: uuid.UUID,
     tenant_id: uuid.UUID,
 ) -> bool:
-    raise NotImplementedError
+    obj = await semantic_repo.get_term(
+        session, term_id=term_id, tenant_id=tenant_id
+    )
+    if obj is None:
+        return False
+    await semantic_repo.delete_term(session, obj=obj)
+    return True
 
 
 # ============ relations ============
@@ -193,7 +273,9 @@ async def list_relations(
     limit: int,
     offset: int,
 ) -> tuple[list[SemanticRelation], int]:
-    raise NotImplementedError
+    return await semantic_repo.list_relations(
+        session, tenant_id=tenant_id, limit=limit, offset=offset
+    )
 
 
 async def get_relation(
@@ -202,7 +284,9 @@ async def get_relation(
     relation_id: uuid.UUID,
     tenant_id: uuid.UUID,
 ) -> SemanticRelation | None:
-    raise NotImplementedError
+    return await semantic_repo.get_relation(
+        session, relation_id=relation_id, tenant_id=tenant_id
+    )
 
 
 async def create_relation(
@@ -216,8 +300,25 @@ async def create_relation(
     to_column_id: uuid.UUID | None,
     description: str | None,
 ) -> SemanticRelation | None:
-    """from_table_id / to_table_id 不存在或越权返回 None。"""
-    raise NotImplementedError
+    """from_table_id / to_table_id 必须都属于本租户，否则返回 None。"""
+    if not await semantic_repo.get_table(
+        session, table_id=from_table_id, tenant_id=tenant_id
+    ):
+        return None
+    if not await semantic_repo.get_table(
+        session, table_id=to_table_id, tenant_id=tenant_id
+    ):
+        return None
+    return await semantic_repo.create_relation(
+        session,
+        tenant_id=tenant_id,
+        from_table_id=from_table_id,
+        to_table_id=to_table_id,
+        relation_type=relation_type,
+        from_column_id=from_column_id,
+        to_column_id=to_column_id,
+        description=description,
+    )
 
 
 async def patch_relation(
@@ -227,7 +328,12 @@ async def patch_relation(
     tenant_id: uuid.UUID,
     changes: dict[str, Any],
 ) -> SemanticRelation | None:
-    raise NotImplementedError
+    obj = await semantic_repo.get_relation(
+        session, relation_id=relation_id, tenant_id=tenant_id
+    )
+    if obj is None:
+        return None
+    return await semantic_repo.update_relation(session, obj=obj, changes=changes)
 
 
 async def remove_relation(
@@ -236,7 +342,13 @@ async def remove_relation(
     relation_id: uuid.UUID,
     tenant_id: uuid.UUID,
 ) -> bool:
-    raise NotImplementedError
+    obj = await semantic_repo.get_relation(
+        session, relation_id=relation_id, tenant_id=tenant_id
+    )
+    if obj is None:
+        return False
+    await semantic_repo.delete_relation(session, obj=obj)
+    return True
 
 
 # ============ 高层操作 ============
@@ -249,7 +361,11 @@ async def discover_business_schema(
     include_views: bool = False,
 ) -> list[TableInfo]:
     """调 schema_loader 抽取业务库 schema（dry-run，不入库）。"""
-    raise NotImplementedError
+    return await schema_loader.load_schema(
+        engine,
+        include_schemas=include_schemas,
+        include_views=include_views,
+    )
 
 
 async def reindex(
@@ -258,7 +374,7 @@ async def reindex(
     tenant_id: uuid.UUID,
 ) -> ReindexReport:
     """调 indexer.reindex_tenant 全量重建本租户 embedding。"""
-    raise NotImplementedError
+    return await indexer.reindex_tenant(session, tenant_id=tenant_id)
 
 
 async def hybrid_search(
@@ -271,4 +387,11 @@ async def hybrid_search(
     types: tuple[HitType, ...] | None = None,
 ) -> list[Hit]:
     """调 retriever.search 做混合检索。"""
-    raise NotImplementedError
+    return await retriever.search(
+        session,
+        tenant_id=tenant_id,
+        query=query,
+        top_k=top_k,
+        alpha=alpha,
+        types=types,
+    )

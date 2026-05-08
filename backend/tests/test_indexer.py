@@ -16,7 +16,6 @@ import pytest
 
 from app.semantic import indexer
 
-
 # ---- card_for_* ----
 
 

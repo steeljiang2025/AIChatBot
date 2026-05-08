@@ -68,6 +68,15 @@ class Settings(BaseSettings):
         description="refresh token 有效期（天）。STE-18 起用；过期后用户需重新 /auth/login。",
     )
 
+    # ---- SQL 安全（STE-22 起用） ----
+    sql_max_rows: int = Field(
+        default=5000,
+        description=(
+            "自动 LIMIT 上限：sql_safety.validator.enforce_limit 会把超过此值"
+            "的 LIMIT 截断到此值，无 LIMIT 则注入此值。生产推荐 ≤ 10000。"
+        ),
+    )
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

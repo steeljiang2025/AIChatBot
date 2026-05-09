@@ -19,7 +19,7 @@ import pytest
 from app.semantic import retriever
 
 
-# 行 schema：{type, id, title, snippet, ts_rank, cosine_distance}
+# 行 schema：{type, id, title, snippet, ts_rank, cosine_distance, schema_name?, table_name?, physical_column?}
 def _row(
     *,
     type_: str = "table",
@@ -28,6 +28,9 @@ def _row(
     snippet: str = "s",
     ts_rank: float = 0.0,
     cosine_distance: float = 1.0,
+    schema_name: str | None = None,
+    table_name: str | None = None,
+    physical_column: str | None = None,
 ) -> dict[str, Any]:
     return {
         "type": type_,
@@ -36,6 +39,9 @@ def _row(
         "snippet": snippet,
         "ts_rank": ts_rank,
         "cosine_distance": cosine_distance,
+        "schema_name": schema_name,
+        "table_name": table_name,
+        "physical_column": physical_column,
     }
 
 

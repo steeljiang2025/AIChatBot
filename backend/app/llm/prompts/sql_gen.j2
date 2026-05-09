@@ -2,19 +2,27 @@
 
 【硬约束】
 1. 只能生成单条 `SELECT` 语句；禁止 `INSERT` / `UPDATE` / `DELETE` / `TRUNCATE` / `DROP` 等任何 DDL 或 DML 写操作，禁止访问 `pg_*` / `information_schema.*` 系统库。
-2. 凡是「可用 schema」中标注了 `tenant_id` 字段的表，`WHERE` 子句必须显式带 `tenant_id = '{{ tenant_id }}'`，禁止省略，禁止用其它常量；如有多个表 JOIN，每个有 `tenant_id` 的表都要带。
+2. 凡是「可用 schema」中标注了 `tenant_id` 字段的表，`WHERE` 子句必须显式带 `tenant_id = :tid`，禁止写死具体租户 UUID，禁止用其它常量；如有多个表 JOIN，每个有 `tenant_id` 的表都要带。
 3. 只能使用「可用 schema」中明确列出的表与字段，禁止假设其它字段存在；如果用户问题中的概念不在 schema 里，明确返回 `-- INSUFFICIENT_SCHEMA: <说明>`，不要瞎编。
 4. 必须以 `LIMIT {{ max_rows }}` 收尾（除非已经使用 `LIMIT n` 且 n ≤ {{ max_rows }}），禁止超过此值。
 5. 输出一条可直接执行的 SQL，**不要**任何解释、注释、markdown 代码框（```sql ... ``` 也不要）。
+6. **标识符必须使用物理英文名**：每张卡片里的「物理表」形如 `biz.demo_orders`（小写 `schema.table`）；列名必须使用卡片「允许的列名」中的英文小写标识符。**禁止**用中文、禁止用展示名、`display_name` 或双引号包裹业务中文当表名/列名。
+7. 用户说的地区、品类等措辞若与库里实际取值不完全一致（例如用户说「华东地区」而存储为「华东」），应用 `LIKE`、`SIMILAR TO` 或 `position()` 等做合理匹配，不要硬编码不存在的字面量。
+8. **日期与年份**：若用户只说「一月到三月」「第一季度」等**未给出公历年份**，禁止随意写死某年（如 `2023`、`2024`）；否则极易把 `order_date` 过滤成**空结果**。应改用 `EXTRACT(MONTH FROM order_date) IN (1,2,3)`（或 `BETWEEN 1 AND 3` 配合 `EXTRACT`），或按月分组时不加会把结果滤空的年份条件。若用户明确说「2023 年」「去年」，再按该年构造区间。
 
+{% if prior_error is defined and prior_error %}
+【上次失败（请据此改写 SQL）】
+{{ prior_error }}
+
+{% endif %}
 【用户问题】
 {{ question }}
 
 【可用 schema（语义卡片）】
 {% if schema_cards %}
 {% for card in schema_cards %}
-- 表 `{{ card.table }}`：{{ card.description | default("（无业务描述）") }}
-  字段：{{ card.columns | join(", ") }}
+- 物理表 `{{ card["table"] }}`{% if card.get("display_name") %}（展示名：{{ card["display_name"] }}）{% endif %}：{{ card["description"] | default("（无业务描述）", true) }}
+  允许的列名（SELECT 必须原样使用这些英文标识符）：{% set cols = card.get("columns") or [] %}{% if cols %}{{ cols | join(", ") }}{% else %}（见上文表描述；仅允许已登记英文字段）{% endif %}
 {% endfor %}
 {% else %}
 （暂无可用 schema，应直接返回 `-- INSUFFICIENT_SCHEMA: 语义层尚未登记任何表`）

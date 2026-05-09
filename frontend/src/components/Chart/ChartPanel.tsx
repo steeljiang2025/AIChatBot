@@ -22,7 +22,7 @@ import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { useChartStore } from "@/store/chartStore";
 import type { ColumnsType } from "antd/es/table";
-import type { RowCell } from "@/types/chat";
+import type { ChartSpec, RowCell } from "@/types/chat";
 
 const { Text } = Typography;
 
@@ -32,6 +32,7 @@ export default function ChartPanel(): JSX.Element {
   const sql = useChartStore((s) => s.sql);
   const [tab, setTab] = useState<"chart" | "table" | "sql">("chart");
   const [fullscreen, setFullscreen] = useState(false);
+  const chartOption = useMemo(() => (chart ? normalizeChartOption(chart) : null), [chart]);
 
   const tableColumns: ColumnsType<Record<string, RowCell>> = useMemo(() => {
     if (!rows) return [];
@@ -162,9 +163,9 @@ export default function ChartPanel(): JSX.Element {
             />
           </div>
         ) : tab === "chart" ? (
-          chart ? (
+          chartOption ? (
             <ReactECharts
-              option={chart}
+              option={chartOption}
               style={{ height: "100%", width: "100%" }}
               notMerge
               lazyUpdate
@@ -229,4 +230,86 @@ function formatCell(v: RowCell): string {
     if (Number.isFinite(v) && !Number.isInteger(v)) return v.toFixed(3);
   }
   return String(v);
+}
+
+function normalizeChartOption(chart: ChartSpec): ChartSpec {
+  const option = chart as Record<string, unknown>;
+  const series = option.series;
+  const firstSeries = Array.isArray(series) ? series[0] : series;
+  const isPie =
+    isRecord(firstSeries) && String(firstSeries.type ?? "").toLowerCase() === "pie";
+
+  if (isPie) {
+    return {
+      ...option,
+      title: normalizeTitle(option.title, "center"),
+      legend: normalizeLegend(option.legend, { bottom: 4, type: "scroll" }),
+      series: Array.isArray(series)
+        ? series.map((item) =>
+            isRecord(item)
+              ? { center: ["50%", "54%"], radius: "60%", ...item }
+              : item,
+          )
+        : series,
+    } as ChartSpec;
+  }
+
+  return {
+    ...option,
+    title: normalizeTitle(option.title, "left"),
+    legend: normalizeLegend(option.legend, {
+      top: 64,
+      left: "center",
+      type: "scroll",
+      itemGap: 20,
+    }),
+    grid: normalizeGrid(option.grid),
+  } as ChartSpec;
+}
+
+function normalizeTitle(title: unknown, left: "left" | "center"): Record<string, unknown> {
+  const raw = Array.isArray(title) ? title[0] : title;
+  const obj = isRecord(raw) ? raw : {};
+  return {
+    ...obj,
+    left: obj.left ?? left,
+    top: obj.top ?? 0,
+    itemGap: obj.itemGap ?? 8,
+    textStyle: {
+      fontSize: 16,
+      fontWeight: 600,
+      color: "#1f2937",
+      ...(isRecord(obj.textStyle) ? obj.textStyle : {}),
+    },
+    subtextStyle: {
+      fontSize: 12,
+      color: "#6b7280",
+      lineHeight: 18,
+      ...(isRecord(obj.subtextStyle) ? obj.subtextStyle : {}),
+    },
+  };
+}
+
+function normalizeLegend(
+  legend: unknown,
+  defaults: Record<string, unknown>,
+): Record<string, unknown> {
+  const obj = isRecord(legend) ? legend : {};
+  return { ...obj, ...defaults };
+}
+
+function normalizeGrid(grid: unknown): Record<string, unknown> {
+  const obj = isRecord(grid) ? grid : {};
+  return {
+    ...obj,
+    left: 48,
+    right: 24,
+    top: 120,
+    bottom: 48,
+    containLabel: true,
+  };
+}
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return Boolean(v) && typeof v === "object" && !Array.isArray(v);
 }

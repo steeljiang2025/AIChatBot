@@ -5,7 +5,7 @@ import { ReloadOutlined } from "@ant-design/icons";
 import { fetchHealth, type HealthResponse } from "../api/health";
 import HealthBadge, { type Status } from "../components/HealthBadge";
 
-const { Paragraph, Text } = Typography;
+const { Text } = Typography;
 
 interface State {
   loading: boolean;
@@ -82,14 +82,18 @@ export default function HealthCheck() {
         )}
       </Card>
 
-      <Card title="下一步">
-        <Paragraph>
-          Phase 4 已完成前后端联调：Workspace 使用真实{" "}
-          <Text code>/auth</Text>、<Text code>/sessions</Text>、
-          <Text code>/chat/stream</Text>（JWT + SSE）。Mock 账号仍可用于无后端环境的 UI
-          演示；真实 JWT 下自动拉取会话与历史消息。详见仓库根目录{" "}
-          <Text code>README.md</Text>「Phase 4」一节。
-        </Paragraph>
+      <Card title="服务能力">
+        <Descriptions column={1} size="small" bordered>
+          <Descriptions.Item label="认证">
+            <Text code>/auth</Text>
+          </Descriptions.Item>
+          <Descriptions.Item label="会话">
+            <Text code>/sessions</Text>
+          </Descriptions.Item>
+          <Descriptions.Item label="流式分析">
+            <Text code>/chat/stream</Text>
+          </Descriptions.Item>
+        </Descriptions>
       </Card>
     </Space>
   );

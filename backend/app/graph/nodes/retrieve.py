@@ -50,4 +50,7 @@ def _hit_to_dict(hit: Any) -> dict[str, Any]:
         "title": getattr(hit, "title", ""),
         "snippet": getattr(hit, "snippet", ""),
         "score": getattr(hit, "score", 0.0),
+        "schema_name": getattr(hit, "schema_name", None),
+        "table_name": getattr(hit, "table_name", None),
+        "physical_column": getattr(hit, "physical_column", None),
     }

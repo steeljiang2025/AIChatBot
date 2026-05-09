@@ -200,6 +200,9 @@ class HitResponse(BaseModel):
     title: str
     snippet: str
     score: float
+    schema_name: str | None = None
+    table_name: str | None = None
+    physical_column: str | None = None
 
 
 class SearchResponse(BaseModel):
@@ -722,6 +725,9 @@ async def search(
                 title=h.title,
                 snippet=h.snippet,
                 score=h.score,
+                schema_name=h.schema_name,
+                table_name=h.table_name,
+                physical_column=h.physical_column,
             )
             for h in hits
         ]

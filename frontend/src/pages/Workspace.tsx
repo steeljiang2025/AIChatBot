@@ -65,9 +65,6 @@ export default function Workspace(): JSX.Element {
           <Text strong style={{ fontSize: 16 }}>
             AIChatBot · 智能数据分析助理
           </Text>
-          <Tag color={mockList ? "default" : "success"}>
-            {mockList ? "Mock 数据" : "Phase 4 · 后端联调"}
-          </Tag>
         </Space>
         <Space size={12}>
           <Tooltip title={`租户：${user?.tenantId ?? "-"}`}>

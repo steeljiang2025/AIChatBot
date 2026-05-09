@@ -15,6 +15,21 @@ interface Props {
   message: ChatMessage;
 }
 
+const RAW_SELECT_ECHO_RE =
+  /\bSELECT\b[\s\S]*?\bLIMIT\s+\d+\b\s*;?/gi;
+
+/** 已有专用 SqlBlock 展示 SQL 时，去掉正文里重复的 SQL，避免与上方/下方块叠成两份。 */
+function stripEmbeddedSql(content: string, sql?: string): string {
+  if (!content) return content;
+  const shouldStripRawSql =
+    Boolean(sql?.trim()) || /\bSELECT\b[\s\S]*?\bFROM\b/i.test(content);
+  let next = content.replace(/```(?:sql)?\s*[\s\S]*?```/gi, "").trim();
+  if (shouldStripRawSql) {
+    next = next.replace(RAW_SELECT_ECHO_RE, "").trim();
+  }
+  return next.replace(/^[;；\s]+/, "").replace(/\n{3,}/g, "\n\n");
+}
+
 export default function MessageBubble({ message }: Props): JSX.Element {
   const isUser = message.role === "user";
   return (
@@ -67,7 +82,9 @@ export default function MessageBubble({ message }: Props): JSX.Element {
           ) : (
             <div className="markdown-body">
               {message.content ? (
-                <ReactMarkdownRender content={message.content} />
+                <ReactMarkdownRender
+                  content={stripEmbeddedSql(message.content, message.sql)}
+                />
               ) : message.streaming ? (
                 <Text type="secondary">正在思考…</Text>
               ) : message.error ? (

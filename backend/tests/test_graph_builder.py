@@ -138,7 +138,10 @@ async def test_happy_path_runs_all_nodes(
     assert out["validated_sql"]
     assert ":tid" in out["validated_sql"]
     assert out["rows"] == rows
-    assert out["chart_spec"]["chart_type"] == "bar"
+    assert out["chart_spec"]["xAxis"]["data"] == ["A", "B"]
+    assert out["chart_spec"]["series"][0]["type"] == "bar"
+    assert out["chart_spec"]["grid"]["top"] == 120
+    assert out["chart_spec"]["legend"]["top"] == 64
     assert out.get("error") is None
 
 
@@ -243,7 +246,8 @@ async def test_validate_failure_exhausts_retries(
             }
         },
     )
-    assert out.get("error")
+    # summarize 收口时会清 error，避免误判 workflow_failed
+    assert out.get("error") is None
     assert out.get("rows") in (None, [])
     # summarize 仍应产出 AIMessage 兜底
     assert any(isinstance(m, AIMessage) for m in out["messages"])

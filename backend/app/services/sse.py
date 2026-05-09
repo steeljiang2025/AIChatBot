@@ -17,6 +17,8 @@ import json
 from collections.abc import Iterable
 from typing import Any
 
+from app.sql_string import dedupe_semicolon_sql_clauses
+
 
 def encode_sse(event: str, data: Any) -> bytes:
     """SSE 帧编码。
@@ -42,6 +44,8 @@ def translate_chunk(chunk: tuple[str, Any]) -> Iterable[bytes]:
     输出：bytes 序列；每条帧已 SSE-encoded。
 
     设计要点：
+    - messages chunk 只转发 summarize 节点文本；sql_gen/chart 等节点的 LLM
+      中间输出不能进入聊天气泡
     - messages chunk 缺 langgraph_node 视为非法（plan §3.8.1）→ 跳过
     - messages chunk content 为空也跳过，避免空 token 帧打扰前端
     - rows 空数组仍 emit（columns=[] data=[]），便于前端区分「没数据」与「未查询」
@@ -55,7 +59,7 @@ def translate_chunk(chunk: tuple[str, Any]) -> Iterable[bytes]:
             return
         ai_chunk, meta = data
         node = meta.get("langgraph_node") if isinstance(meta, dict) else None
-        if not node:
+        if not node or node != "summarize":
             return
         content = _extract_text(getattr(ai_chunk, "content", None))
         if not content:
@@ -76,7 +80,10 @@ def translate_chunk(chunk: tuple[str, Any]) -> Iterable[bytes]:
             if not isinstance(delta, dict):
                 continue
             if delta.get("validated_sql"):
-                yield encode_sse("sql", {"sql": delta["validated_sql"]})
+                yield encode_sse(
+                    "sql",
+                    {"sql": dedupe_semicolon_sql_clauses(delta["validated_sql"])},
+                )
             if "rows" in delta and delta["rows"] is not None:
                 rows = delta["rows"]
                 cols = list(rows[0].keys()) if rows else []

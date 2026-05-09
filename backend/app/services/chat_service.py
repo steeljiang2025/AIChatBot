@@ -24,6 +24,7 @@ from langchain_core.messages import HumanMessage
 
 from app.services import session_repo
 from app.services.schema_provider import load_schema_whitelist
+from app.sql_string import dedupe_semicolon_sql_clauses
 from app.services.sse import encode_sse, translate_chunk
 
 if TYPE_CHECKING:
@@ -111,11 +112,15 @@ async def stream_chat(
                         continue
                     if delta.get("validated_sql"):
                         final_sql = delta["validated_sql"]
+                        # 一旦拿到通过校验的 SQL，说明重试阶段已过，清掉流式错误缓存
+                        final_error = None
                     if "rows" in delta and delta["rows"] is not None:
                         final_rows = delta["rows"]
                     if delta.get("chart_spec"):
                         final_chart = delta["chart_spec"]
-                    if delta.get("error"):
+                    # 必须用「包含 error 键」判断：校验重试会先写 error，成功后同节点带回
+                    # error=None；若只用 truthy assign，会持续保留中间错误导致 done 误判失败。
+                    if "error" in delta:
                         final_error = delta["error"]
             for frame in translate_chunk(chunk):
                 yield frame
@@ -149,7 +154,7 @@ async def stream_chat(
     )
     extra: dict[str, Any] = {}
     if final_sql:
-        extra["sql"] = final_sql
+        extra["sql"] = dedupe_semicolon_sql_clauses(final_sql)
     if final_rows is not None:
         extra["rows_preview"] = final_rows[:_ROWS_PREVIEW_LIMIT]
     if final_chart:

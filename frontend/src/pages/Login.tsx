@@ -99,16 +99,12 @@ export default function LoginPage(): JSX.Element {
             </Space>
             {mockAuth ? (
               <Text type="secondary">
-                Phase 4：本地 mock 登录（<code>VITE_USE_MOCK_AUTH</code> 未设为{" "}
-                <code>false</code>）：<code>admin / admin</code> 或{" "}
+                使用演示账号登录：<code>admin / admin</code> 或{" "}
                 <code>demo / demo</code>。
               </Text>
             ) : (
               <Text type="secondary">
-                对接真实后端：字段与 <code>POST /auth/login</code> 一致（
-                <code>tenant_code</code>、<code>email</code>、<code>password</code>
-                ），成功后使用 <code>access_token</code> 调用 <code>/auth/me</code>
-                。
+                使用租户代码、邮箱和密码登录智能数据分析工作台。
               </Text>
             )}
             {expiredBy401 && (

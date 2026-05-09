@@ -41,6 +41,12 @@ class Hit:
     title: str
     snippet: str
     score: float
+    #: 便于 NL2SQL：物理 schema（小写归一建议使用方在 SQL 中引用）
+    schema_name: str | None = None
+    #: 物理表名（不含 schema）
+    table_name: str | None = None
+    #: 列命中时的物理列名；表/术语/关联命中为 None
+    physical_column: str | None = None
 
 
 DEFAULT_ALPHA: float = 0.3
@@ -48,7 +54,8 @@ DEFAULT_TOP_K: int = 10
 
 
 # 4 类资源各自的 SELECT，每条都暴露同样的列：
-# (type, id, title, snippet, ts_rank, cosine_distance)
+# type, id, title, snippet, ts_rank, cosine_distance,
+# schema_name, table_name, physical_column（后三列供 NL2SQL 用物理标识符）
 #
 # - `:q` 是 plainto_tsquery 文本；空 query 时 ts_rank 退化为 0
 # - `:qvec` 是查询的嵌入向量（pgvector text 表示 `[0.1,0.2,...]`）；
@@ -60,7 +67,10 @@ _PER_TYPE_SQL: dict[str, str] = {
                COALESCE(t.display_name, t.table_name) AS title,
                COALESCE(t.description, '')             AS snippet,
                COALESCE(ts_rank_cd(t.tsv, plainto_tsquery('simple', :q)), 0)::float AS ts_rank,
-               COALESCE(t.embedding <=> CAST(:qvec AS vector), 1)::float            AS cosine_distance
+               COALESCE(t.embedding <=> CAST(:qvec AS vector), 1)::float            AS cosine_distance,
+               t.schema_name::varchar(63)              AS schema_name,
+               t.table_name::varchar(63)               AS table_name,
+               NULL::varchar(63)                       AS physical_column
           FROM rag.semantic_tables t
          WHERE t.tenant_id = :tid
     """,
@@ -69,8 +79,13 @@ _PER_TYPE_SQL: dict[str, str] = {
                COALESCE(c.display_name, c.column_name) AS title,
                COALESCE(c.business_meaning, c.description, '') AS snippet,
                COALESCE(ts_rank_cd(c.tsv, plainto_tsquery('simple', :q)), 0)::float AS ts_rank,
-               COALESCE(c.embedding <=> CAST(:qvec AS vector), 1)::float            AS cosine_distance
+               COALESCE(c.embedding <=> CAST(:qvec AS vector), 1)::float AS cosine_distance,
+               tb.schema_name::varchar(63)             AS schema_name,
+               tb.table_name::varchar(63)               AS table_name,
+               c.column_name::varchar(63)               AS physical_column
           FROM rag.semantic_columns c
+          JOIN rag.semantic_tables tb
+            ON tb.id = c.table_id AND tb.tenant_id = c.tenant_id
          WHERE c.tenant_id = :tid
     """,
     "term": """
@@ -78,7 +93,10 @@ _PER_TYPE_SQL: dict[str, str] = {
                m.term                                AS title,
                COALESCE(m.definition, '')            AS snippet,
                COALESCE(ts_rank_cd(m.tsv, plainto_tsquery('simple', :q)), 0)::float AS ts_rank,
-               COALESCE(m.embedding <=> CAST(:qvec AS vector), 1)::float            AS cosine_distance
+               COALESCE(m.embedding <=> CAST(:qvec AS vector), 1)::float AS cosine_distance,
+               NULL::varchar(63)                     AS schema_name,
+               NULL::varchar(63)                     AS table_name,
+               NULL::varchar(63)                     AS physical_column
           FROM rag.semantic_terms m
          WHERE m.tenant_id = :tid
     """,
@@ -87,7 +105,10 @@ _PER_TYPE_SQL: dict[str, str] = {
                r.relation_type                       AS title,
                COALESCE(r.description, '')           AS snippet,
                0::float                              AS ts_rank,
-               1::float                              AS cosine_distance
+               1::float                              AS cosine_distance,
+               NULL::varchar(63)                     AS schema_name,
+               NULL::varchar(63)                     AS table_name,
+               NULL::varchar(63)                     AS physical_column
           FROM rag.semantic_relations r
          WHERE r.tenant_id = :tid
     """,
@@ -109,8 +130,10 @@ async def _run_hybrid_query(
     top_k: int,
     types: tuple[HitType, ...] | None,
 ) -> list[dict[str, Any]]:
-    """执行混合检索 SQL，返回 `{type, id, title, snippet, ts_rank, cosine_distance}`
-    行集。每个类型 SELECT top_k 条候选，最终在 Python 端做 weighted 合并。
+    """执行混合检索 SQL，返回行字典（至少含 type, id, title, snippet,
+    ts_rank, cosine_distance；以及 schema_name/table_name/physical_column）。
+
+    每个类型 SELECT top_k 条候选，最终在 Python 端做 weighted 合并。
 
     向量端：query 非空时调 LLM `aembed_query` 得到 1024 维向量；
     query 为空时 `:qvec` 传 NULL，由 SQL 端 COALESCE 退化为 1。
@@ -190,6 +213,9 @@ async def search(
                 title=row["title"],
                 snippet=row["snippet"],
                 score=score,
+                schema_name=row.get("schema_name"),
+                table_name=row.get("table_name"),
+                physical_column=row.get("physical_column"),
             )
         )
     hits.sort(key=lambda h: h.score, reverse=True)

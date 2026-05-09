@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from decimal import Decimal
 from typing import Any
 from unittest.mock import AsyncMock
 
@@ -131,9 +132,10 @@ async def test_sql_gen_invokes_llm_with_rendered_prompt(
     out = await sql_gen(state, _config(chat_llm=fake_llm, max_rows=200))
 
     assert rendered_text["name"] == "sql_gen"
-    assert rendered_text["ctx"]["user_query"] == base_state["user_query"]
+    assert rendered_text["ctx"]["question"] == base_state["user_query"]
     assert rendered_text["ctx"]["max_rows"] == 200
-    assert "semantic_cards" in rendered_text["ctx"]
+    assert rendered_text["ctx"]["tenant_id"] == str(base_state["tenant_id"])
+    assert "schema_cards" in rendered_text["ctx"]
     fake_llm.ainvoke.assert_awaited_once()
     assert out["candidate_sql"].startswith("SELECT")
     assert out["error"] is None
@@ -247,6 +249,23 @@ async def test_sql_exec_calls_engine_with_tid_param(
     assert captured["timeout_ms"] == 15000
 
 
+@pytest.mark.asyncio
+async def test_sql_exec_normalizes_decimal_for_checkpoint_json(
+    base_state: dict,
+) -> None:
+    """NUMERIC/SUM 等返回 Decimal，必须可进 JSON checkpoint / message.extra。"""
+    fake_engine = _FakeEngine(
+        result_rows=[{"total_amount": Decimal("12345.67")}],
+        captured={},
+    )
+    state = {
+        **base_state,
+        "validated_sql": "SELECT SUM(amount) AS total_amount FROM t WHERE x = :tid",
+    }
+    out = await sql_exec(state, _config(biz_engine=fake_engine, sql_exec_timeout_ms=15000))
+    assert out["rows"] == [{"total_amount": "12345.67"}]
+
+
 # ============ chart ============
 
 
@@ -265,13 +284,22 @@ async def test_chart_calls_llm_and_parses_json(
         "app.llm.prompts.render_prompt", lambda *a, **k: "PROMPT"
     )
     fake_llm = AsyncMock()
-    spec = {"chart_type": "bar", "option": {"xAxis": {}, "series": []}}
+    spec = {
+        "chart_type": "bar",
+        "x_field": "product",
+        "y_field": "amount",
+        "title": "产品销售额",
+        "reason": "类别对比",
+    }
     fake_llm.ainvoke = AsyncMock(
         return_value=AIMessage(content=json.dumps(spec))
     )
     state = {**base_state, "rows": [{"product": "A", "amount": 1}]}
     out = await chart(state, _config(chat_llm=fake_llm))
-    assert out["chart_spec"] == spec
+    assert out["chart_spec"]["title"]["text"] == "产品销售额"
+    assert out["chart_spec"]["xAxis"]["data"] == ["A"]
+    assert out["chart_spec"]["series"][0]["type"] == "bar"
+    assert out["chart_spec"]["series"][0]["data"] == [1]
 
 
 @pytest.mark.asyncio
@@ -282,16 +310,29 @@ async def test_chart_handles_markdown_json_fence(
         "app.llm.prompts.render_prompt", lambda *a, **k: "PROMPT"
     )
     fake_llm = AsyncMock()
-    spec = {"chart_type": "line"}
+    spec = {"chart_type": "line", "x_field": "x", "y_field": "y"}
     fake_llm.ainvoke = AsyncMock(
         return_value=AIMessage(content=f"```json\n{json.dumps(spec)}\n```")
     )
-    state = {**base_state, "rows": [{"x": 1}]}
+    state = {**base_state, "rows": [{"x": "2026-01-01", "y": "1.5"}]}
     out = await chart(state, _config(chat_llm=fake_llm))
-    assert out["chart_spec"] == spec
+    assert out["chart_spec"]["series"][0]["type"] == "line"
+    assert out["chart_spec"]["series"][0]["data"] == [1.5]
 
 
 # ============ summarize ============
+
+
+@pytest.mark.asyncio
+async def test_summarize_empty_success_short_circuits(
+    base_state: dict,
+) -> None:
+    """查询成功但 0 行：固定回复，不调用 LLM（避免编造「缺字段」）。"""
+    fake_llm = AsyncMock()
+    state = {**base_state, "rows": []}
+    out = await summarize(state, _config(chat_llm=fake_llm))
+    fake_llm.ainvoke.assert_not_awaited()
+    assert out["messages"][0].content == "未查到符合条件的数据。"
 
 
 @pytest.mark.asyncio
@@ -311,14 +352,57 @@ async def test_summarize_appends_ai_message(
 
 
 @pytest.mark.asyncio
-async def test_summarize_handles_error_state(
+async def test_summarize_dedupes_exactly_doubled_blob(
     monkeypatch: pytest.MonkeyPatch, base_state: dict
 ) -> None:
-    """state.error 已设 + 重试上限 → 友好告知用户失败，不调 LLM 也不强制要求。"""
+    """整段被复制粘贴两遍时折半，避免气泡里 SQL+文字各出现两次。"""
+    monkeypatch.setattr("app.llm.prompts.render_prompt", lambda *a, **k: "P")
+    fake_llm = AsyncMock()
+    unit = "蓝牙耳机一月销售额较高，二月略降。"
+    fake_llm.ainvoke = AsyncMock(return_value=AIMessage(content=unit + unit))
+    state = {**base_state, "rows": [{"m": 1, "amt": "100"}]}
+    out = await summarize(state, _config(chat_llm=fake_llm))
+    assert out["messages"][0].content.strip() == unit.strip()
+
+
+@pytest.mark.asyncio
+async def test_summarize_replaces_missing_month_hallucination(
+    monkeypatch: pytest.MonkeyPatch, base_state: dict
+) -> None:
+    """模型编造「缺月份」时，用查询结果覆盖。"""
     monkeypatch.setattr("app.llm.prompts.render_prompt", lambda *a, **k: "P")
     fake_llm = AsyncMock()
     fake_llm.ainvoke = AsyncMock(
-        return_value=AIMessage(content="抱歉，无法回答你的问题。")
+        return_value=AIMessage(
+            content="数据表中缺少月份字段，无法按月汇总。数据表中缺少月份字段，无法按月汇总。"
+        )
+    )
+    state = {
+        **base_state,
+        "rows": [
+            {"month": 1, "sales_amount": "299.00"},
+            {"month": 2, "sales_amount": "279.00"},
+        ],
+    }
+    out = await summarize(state, _config(chat_llm=fake_llm))
+    text = out["messages"][0].content
+    assert "缺少月份" not in text
+    assert "1 月销售额为 299.00" in text
+    assert "2 月销售额为 279.00" in text
+    assert "299.00" in text
+    assert "279.00" in text
+    assert text.count("数据表中") <= 1
+
+
+@pytest.mark.asyncio
+async def test_summarize_handles_error_state(
+    monkeypatch: pytest.MonkeyPatch, base_state: dict
+) -> None:
+    """state.error 已设 + 无 rows → 固定兜底，避免 LLM 编造缺字段原因。"""
+    monkeypatch.setattr("app.llm.prompts.render_prompt", lambda *a, **k: "P")
+    fake_llm = AsyncMock()
+    fake_llm.ainvoke = AsyncMock(
+        return_value=AIMessage(content="数据表中缺少月份字段。")
     )
     state = {
         **base_state,
@@ -326,8 +410,11 @@ async def test_summarize_handles_error_state(
         "error": "UnregisteredTableError",
     }
     out = await summarize(state, _config(chat_llm=fake_llm))
+    fake_llm.ainvoke.assert_not_awaited()
     assert "messages" in out
     assert len(out["messages"]) == 1
+    assert "安全校验" in out["messages"][0].content
+    assert "缺少月份" not in out["messages"][0].content
 
 
 # ============ Stubs ============

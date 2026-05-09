@@ -31,6 +31,7 @@ import type {
   RowsPayload,
   SseEnvelope,
 } from "@/types/chat";
+import { dedupeSemicolonSql } from "@/utils/sqlDedupe";
 
 interface SendOptions {
   endpoint?: string;
@@ -93,7 +94,7 @@ function dispatch(sessionId: string, env: SseEnvelope): void {
       break;
     }
     case "sql": {
-      const sql = (data.sql ?? "") as string;
+      const sql = dedupeSemicolonSql((data.sql ?? "") as string);
       chat.setSql(sessionId, sql);
       chart.setSql(sql);
       break;

@@ -128,3 +128,15 @@ def test_star_column_allowed(known_tables, known_columns) -> None:
     schema_whitelist.check_table_columns(
         ast, known_tables=known_tables, known_columns=known_columns
     )
+
+
+def test_select_alias_in_order_by_allowed(known_tables, known_columns) -> None:
+    """派生列别名不是物理列，但 ORDER BY month 这类用法应允许。"""
+    ast = validator.parse_safe(
+        "SELECT EXTRACT(MONTH FROM created_at) AS month, "
+        "SUM(amount) AS sales_amount FROM orders "
+        "GROUP BY EXTRACT(MONTH FROM created_at) ORDER BY month"
+    )
+    schema_whitelist.check_table_columns(
+        ast, known_tables=known_tables, known_columns=known_columns
+    )

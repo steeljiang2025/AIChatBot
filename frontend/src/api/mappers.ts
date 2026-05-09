@@ -1,3 +1,4 @@
+import { dedupeSemicolonSql } from "@/utils/sqlDedupe";
 import type { AuthUser } from "@/store/authStore";
 import type { ChatMessage, ChatSession, ChartSpec, Role, RowRecord, RowsPayload } from "@/types/chat";
 import type { AuthUserResponse, MessageApiItem, SessionApiItem } from "./contracts";
@@ -30,7 +31,8 @@ function coerceRole(r: string): Role {
 /** GET /sessions/{id}/messages 单项 → ChatMessage（extra 中 sql / rows_preview / chart） */
 export function mapMessageApiToChatMessage(m: MessageApiItem): ChatMessage {
   const extra = m.extra ?? {};
-  const sql = typeof extra.sql === "string" ? extra.sql : undefined;
+  const sql =
+    typeof extra.sql === "string" ? dedupeSemicolonSql(extra.sql) : undefined;
   const chart = (extra.chart ?? undefined) as ChartSpec | undefined;
   const errRaw = extra.error;
   const error =

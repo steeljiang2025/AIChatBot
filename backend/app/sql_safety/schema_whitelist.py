@@ -29,6 +29,20 @@ def _collect_cte_aliases(ast: exp.Expression) -> set[str]:
     return aliases
 
 
+def _collect_select_aliases(ast: exp.Expression) -> set[str]:
+    """收集 SELECT 派生列别名。
+
+    这些别名不是物理列，但在 PostgreSQL 的 ORDER BY 等位置可以合法引用。
+    例如 `EXTRACT(MONTH FROM order_date) AS month ... ORDER BY month` 里
+    `month` 不应被白名单误判为未登记字段。
+    """
+    aliases: set[str] = set()
+    for alias in ast.find_all(exp.Alias):
+        if alias.alias:
+            aliases.add(alias.alias.lower())
+    return aliases
+
+
 def check_table_columns(
     ast: exp.Expression,
     *,
@@ -41,6 +55,7 @@ def check_table_columns(
         UnregisteredTableError: 任何引用了未登记的表 / 列。
     """
     cte_aliases = _collect_cte_aliases(ast)
+    select_aliases = _collect_select_aliases(ast)
 
     # 1) 表
     for table in ast.find_all(exp.Table):
@@ -64,6 +79,8 @@ def check_table_columns(
     for col in ast.find_all(exp.Column):
         col_name = (col.name or "").lower()
         if not col_name or col_name == "*":
+            continue
+        if not col.table and col_name in select_aliases:
             continue
         # 仅当该列没限定到 CTE alias 时才检查；CTE 内部列由 CTE 内的 select 自身递归校验
         if col.table:

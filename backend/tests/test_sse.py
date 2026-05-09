@@ -82,6 +82,16 @@ def test_translate_messages_skips_when_no_node_field() -> None:
     assert frames == []
 
 
+def test_translate_messages_skips_non_summarize_llm_output() -> None:
+    """chart/sql_gen 的模型输出是中间产物，不应混入聊天正文。"""
+    chunk = (
+        "messages",
+        (AIMessageChunk(content='{"chart_type":"line"}'), {"langgraph_node": "chart"}),
+    )
+    frames = list(translate_chunk(chunk))
+    assert frames == []
+
+
 def test_translate_messages_skips_empty_content() -> None:
     chunk = ("messages", (AIMessageChunk(content=""), {"langgraph_node": "summarize"}))
     frames = list(translate_chunk(chunk))
@@ -152,11 +162,11 @@ def test_translate_updates_rows_empty_still_emits_with_no_columns() -> None:
 
 
 def test_translate_updates_emits_chart_when_chart_spec_present() -> None:
-    chunk = ("updates", {"chart": {"chart_spec": {"chart_type": "bar"}}})
+    chunk = ("updates", {"chart": {"chart_spec": {"xAxis": {}, "series": []}}})
     frames = list(translate_chunk(chunk))
     chart_frame = next(f for f in frames if b"event: chart" in f)
     payload = _parse_data(chart_frame)
-    assert payload == {"option": {"chart_type": "bar"}}
+    assert payload == {"option": {"xAxis": {}, "series": []}}
 
 
 def test_translate_updates_skips_chart_when_chart_spec_none() -> None:
